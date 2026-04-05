@@ -205,7 +205,7 @@ async function doPaste(): Promise<void> {
 
     // Create table if new name provided
     if (newTable) {
-      const cols = Object.keys(rows[0]);
+      const cols = Object.keys(rows[0]).filter(c => c.toLowerCase() !== "id");
       const colDefs = ["id INTEGER PRIMARY KEY AUTOINCREMENT", ...cols.map(c => `"${c}" TEXT`)];
       const createResult = await api<any>("/query", "POST", { query: `CREATE TABLE IF NOT EXISTS "${newTable}" (${colDefs.join(", ")})`, type: "sql" });
       if (createResult.error) { alert("Create table failed: " + createResult.error); return; }
@@ -214,7 +214,7 @@ async function doPaste(): Promise<void> {
     // Insert rows one by one
     let inserted = 0;
     for (const row of rows) {
-      const cols = Object.keys(row);
+      const cols = newTable ? Object.keys(row).filter(c => c.toLowerCase() !== "id") : Object.keys(row);
       const quotedCols = cols.map(c => `"${c}"`).join(",");
       const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`).join(",");
       const result = await api<any>("/query", "POST", { query: `INSERT INTO "${table}" (${quotedCols}) VALUES (${vals})`, type: "sql" });
