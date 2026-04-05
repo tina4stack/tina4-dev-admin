@@ -58,7 +58,7 @@ export function renderDatabase(container: HTMLElement): void {
           <span class="text-sm text-muted">or</span>
           <input type="text" id="paste-new-table" class="input" placeholder="New table name..." style="flex:1">
         </div>
-        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email&#10;Alice,alice@test.com&#10;Bob,bob@test.com'></textarea>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='CSV data or JSON'></textarea>
         <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
           <button class="btn" onclick="window.__hidePaste()">Cancel</button>
           <button class="btn btn-primary" onclick="window.__doPaste()">Import</button>

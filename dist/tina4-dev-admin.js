@@ -1,4 +1,4 @@
-(function(){"use strict";const E={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function F(){const e=document.getElementById("app"),a=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,o=E[a]??E.python;return{framework:a,color:t??o.color,name:o.name}}function N(e){const a=document.documentElement;a.style.setProperty("--primary",e.color),a.style.setProperty("--bg","#0f172a"),a.style.setProperty("--surface","#1e293b"),a.style.setProperty("--border","#334155"),a.style.setProperty("--text","#e2e8f0"),a.style.setProperty("--muted","#94a3b8"),a.style.setProperty("--success","#22c55e"),a.style.setProperty("--danger","#ef4444"),a.style.setProperty("--warn","#f59e0b"),a.style.setProperty("--info","#3b82f6")}const q=`
+(function(){"use strict";const E={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function N(){const e=document.getElementById("app"),a=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,r=E[a]??E.python;return{framework:a,color:t??r.color,name:r.name}}function F(e){const a=document.documentElement;a.style.setProperty("--primary",e.color),a.style.setProperty("--bg","#0f172a"),a.style.setProperty("--surface","#1e293b"),a.style.setProperty("--border","#334155"),a.style.setProperty("--text","#e2e8f0"),a.style.setProperty("--muted","#94a3b8"),a.style.setProperty("--success","#22c55e"),a.style.setProperty("--danger","#ef4444"),a.style.setProperty("--warn","#f59e0b"),a.style.setProperty("--info","#3b82f6")}const q=`
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
 
@@ -74,7 +74,7 @@ tr:hover { background: rgba(255,255,255,0.03); }
 .error-trace { background: var(--bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.5rem; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 0.5rem; }
 
 .bubble-chart { width: 100%; height: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
-`,D="/__dev/api";async function c(e,a="GET",t){const o={method:a,headers:{}};return t&&(o.headers["Content-Type"]="application/json",o.body=JSON.stringify(t)),(await fetch(D+e,o)).json()}function n(e){const a=document.createElement("span");return a.textContent=e,a.innerHTML}function U(e){e.innerHTML=`
+`,D="/__dev/api";async function c(e,a="GET",t){const r={method:a,headers:{}};return t&&(r.headers["Content-Type"]="application/json",r.body=JSON.stringify(t)),(await fetch(D+e,r)).json()}function n(e){const a=document.createElement("span");return a.textContent=e,a.innerHTML}function V(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Routes <span id="routes-count" class="text-muted text-sm"></span></h2>
       <button class="btn btn-sm" onclick="window.__loadRoutes()">Refresh</button>
@@ -83,14 +83,14 @@ tr:hover { background: rgba(255,255,255,0.03); }
       <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Handler</th></tr></thead>
       <tbody id="routes-body"></tbody>
     </table>
-  `,M()}async function M(){const e=await c("/routes"),a=document.getElementById("routes-count");a&&(a.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(o=>`
+  `,S()}async function S(){const e=await c("/routes"),a=document.getElementById("routes-count");a&&(a.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(r=>`
     <tr>
-      <td><span class="method method-${o.method.toLowerCase()}">${n(o.method)}</span></td>
-      <td class="text-mono"><a href="${n(o.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${n(o.path)}</a></td>
-      <td>${o.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
-      <td class="text-sm text-muted">${n(o.handler||"")} <small>(${n(o.module||"")})</small></td>
+      <td><span class="method method-${r.method.toLowerCase()}">${n(r.method)}</span></td>
+      <td class="text-mono"><a href="${n(r.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${n(r.path)}</a></td>
+      <td>${r.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
+      <td class="text-sm text-muted">${n(r.handler||"")} <small>(${n(r.module||"")})</small></td>
     </tr>
-  `).join(""))}window.__loadRoutes=M;let f=[],w=[];function V(e){e.innerHTML=`
+  `).join(""))}window.__loadRoutes=S;let f=[],w=[];function U(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Database</h2>
       <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
@@ -144,18 +144,18 @@ tr:hover { background: rgba(255,255,255,0.03); }
           <span class="text-sm text-muted">or</span>
           <input type="text" id="paste-new-table" class="input" placeholder="New table name..." style="flex:1">
         </div>
-        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email&#10;Alice,alice@test.com&#10;Bob,bob@test.com'></textarea>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='CSV data or JSON'></textarea>
         <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
           <button class="btn" onclick="window.__hidePaste()">Cancel</button>
           <button class="btn btn-primary" onclick="window.__doPaste()">Import</button>
         </div>
       </div>
     </div>
-  `,$()}async function $(){const a=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=a.length?a.map(s=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${n(s)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${n(s)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const o=document.getElementById("db-seed-table");o&&(o.innerHTML='<option value="">Pick table...</option>'+a.map(s=>`<option value="${n(s)}">${n(s)}</option>`).join(""));const r=document.getElementById("paste-table");r&&(r.innerHTML='<option value="">Select table...</option>'+a.map(s=>`<option value="${n(s)}">${n(s)}</option>`).join(""))}function k(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const a=document.getElementById("db-query");a&&(a.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(o=>{o.style.background=o.textContent===e?"var(--border)":""}),S()}function K(){var t;const e=document.getElementById("db-query"),a=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${a}`))}async function S(){var r,s,m;const e=document.getElementById("db-query"),a=(r=e==null?void 0:e.value)==null?void 0:r.trim();if(!a)return;const t=document.getElementById("db-result"),o=((s=document.getElementById("db-type"))==null?void 0:s.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const l=parseInt(((m=document.getElementById("db-limit"))==null?void 0:m.value)||"20"),i=await c("/query","POST",{query:a,type:o,limit:l});if(i.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${n(i.error)}</p>`);return}i.rows&&i.rows.length>0?(w=Object.keys(i.rows[0]),f=i.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${i.count??i.rows.length} rows</p>
+  `,$()}async function $(){const a=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=a.length?a.map(s=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${n(s)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${n(s)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const r=document.getElementById("db-seed-table");r&&(r.innerHTML='<option value="">Pick table...</option>'+a.map(s=>`<option value="${n(s)}">${n(s)}</option>`).join(""));const o=document.getElementById("paste-table");o&&(o.innerHTML='<option value="">Select table...</option>'+a.map(s=>`<option value="${n(s)}">${n(s)}</option>`).join(""))}function k(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const a=document.getElementById("db-query");a&&(a.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(r=>{r.style.background=r.textContent===e?"var(--border)":""}),M()}function J(){var t;const e=document.getElementById("db-query"),a=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${a}`))}async function M(){var o,s,m;const e=document.getElementById("db-query"),a=(o=e==null?void 0:e.value)==null?void 0:o.trim();if(!a)return;const t=document.getElementById("db-result"),r=((s=document.getElementById("db-type"))==null?void 0:s.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const l=parseInt(((m=document.getElementById("db-limit"))==null?void 0:m.value)||"20"),i=await c("/query","POST",{query:a,type:r,limit:l});if(i.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${n(i.error)}</p>`);return}i.rows&&i.rows.length>0?(w=Object.keys(i.rows[0]),f=i.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${i.count??i.rows.length} rows</p>
         <div style="overflow-x:auto"><table><thead><tr>${w.map(d=>`<th>${n(d)}</th>`).join("")}</tr></thead>
-        <tbody>${i.rows.map(d=>`<tr>${w.map(g=>`<td class="text-sm">${n(String(d[g]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):i.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${i.affected} rows affected. ${i.success?"Success.":""}</p>`),f=[],w=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),f=[],w=[])}catch(l){t&&(t.innerHTML=`<p style="color:var(--danger)">${n(l.message)}</p>`)}}function J(){if(!f.length)return;const e=w.join(","),a=f.map(t=>w.map(o=>{const r=String(t[o]??"");return r.includes(",")||r.includes('"')?`"${r.replace(/"/g,'""')}"`:r}).join(","));navigator.clipboard.writeText([e,...a].join(`
-`))}function Q(){f.length&&navigator.clipboard.writeText(JSON.stringify(f,null,2))}function W(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function I(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function G(){var r,s,m,l,i;const e=(r=document.getElementById("paste-table"))==null?void 0:r.value,a=(m=(s=document.getElementById("paste-new-table"))==null?void 0:s.value)==null?void 0:m.trim(),t=a||e,o=(i=(l=document.getElementById("paste-data"))==null?void 0:l.value)==null?void 0:i.trim();if(!t||!o){alert("Select a table or enter a new table name, and paste data.");return}try{let d;try{d=JSON.parse(o),Array.isArray(d)||(d=[d])}catch{const b=o.split(`
-`).map(u=>u.trim()).filter(Boolean);if(b.length<2){alert("CSV needs at least a header row and one data row.");return}const h=b[0].split(",").map(u=>u.trim().replace(/[^a-zA-Z0-9_]/g,""));d=b.slice(1).map(u=>{const v=u.split(",").map(p=>p.trim()),y={};return h.forEach((p,O)=>{y[p]=v[O]??""}),y})}if(!d.length){alert("No data rows found.");return}if(a){const h=["id INTEGER PRIMARY KEY AUTOINCREMENT",...Object.keys(d[0]).filter(v=>v.toLowerCase()!=="id").map(v=>`"${v}" TEXT`)],u=await c("/query","POST",{query:`CREATE TABLE IF NOT EXISTS "${a}" (${h.join(", ")})`,type:"sql"});if(u.error){alert("Create table failed: "+u.error);return}}let g=0;for(const b of d){const h=a?Object.keys(b).filter(p=>p.toLowerCase()!=="id"):Object.keys(b),u=h.map(p=>`"${p}"`).join(","),v=h.map(p=>`'${String(b[p]).replace(/'/g,"''")}'`).join(","),y=await c("/query","POST",{query:`INSERT INTO "${t}" (${u}) VALUES (${v})`,type:"sql"});if(y.error){alert(`Row ${g+1} failed: ${y.error}`);break}g++}document.getElementById("paste-data").value="",document.getElementById("paste-new-table").value="",document.getElementById("paste-table").selectedIndex=0,I(),$(),g>0&&k(t)}catch(d){alert("Import error: "+d.message)}}async function X(){var t,o;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,a=parseInt(((o=document.getElementById("db-seed-count"))==null?void 0:o.value)||"10");if(e)try{const r=await c("/seed","POST",{table:e,count:a});r.error?alert(r.error):k(e)}catch(r){alert("Seed error: "+r.message)}}window.__loadTables=$,window.__selectTable=k,window.__updateLimit=K,window.__runQuery=S,window.__copyCSV=J,window.__copyJSON=Q,window.__showPaste=W,window.__hidePaste=I,window.__doPaste=G,window.__seedTable=X;function Y(e){e.innerHTML=`
+        <tbody>${i.rows.map(d=>`<tr>${w.map(g=>`<td class="text-sm">${n(String(d[g]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):i.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${i.affected} rows affected. ${i.success?"Success.":""}</p>`),f=[],w=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),f=[],w=[])}catch(l){t&&(t.innerHTML=`<p style="color:var(--danger)">${n(l.message)}</p>`)}}function K(){if(!f.length)return;const e=w.join(","),a=f.map(t=>w.map(r=>{const o=String(t[r]??"");return o.includes(",")||o.includes('"')?`"${o.replace(/"/g,'""')}"`:o}).join(","));navigator.clipboard.writeText([e,...a].join(`
+`))}function Q(){f.length&&navigator.clipboard.writeText(JSON.stringify(f,null,2))}function W(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function I(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function G(){var o,s,m,l,i;const e=(o=document.getElementById("paste-table"))==null?void 0:o.value,a=(m=(s=document.getElementById("paste-new-table"))==null?void 0:s.value)==null?void 0:m.trim(),t=a||e,r=(i=(l=document.getElementById("paste-data"))==null?void 0:l.value)==null?void 0:i.trim();if(!t||!r){alert("Select a table or enter a new table name, and paste data.");return}try{let d;try{d=JSON.parse(r),Array.isArray(d)||(d=[d])}catch{const b=r.split(`
+`).map(u=>u.trim()).filter(Boolean);if(b.length<2){alert("CSV needs at least a header row and one data row.");return}const h=b[0].split(",").map(u=>u.trim().replace(/[^a-zA-Z0-9_]/g,""));d=b.slice(1).map(u=>{const v=u.split(",").map(p=>p.trim()),y={};return h.forEach((p,z)=>{y[p]=v[z]??""}),y})}if(!d.length){alert("No data rows found.");return}if(a){const h=["id INTEGER PRIMARY KEY AUTOINCREMENT",...Object.keys(d[0]).filter(v=>v.toLowerCase()!=="id").map(v=>`"${v}" TEXT`)],u=await c("/query","POST",{query:`CREATE TABLE IF NOT EXISTS "${a}" (${h.join(", ")})`,type:"sql"});if(u.error){alert("Create table failed: "+u.error);return}}let g=0;for(const b of d){const h=a?Object.keys(b).filter(p=>p.toLowerCase()!=="id"):Object.keys(b),u=h.map(p=>`"${p}"`).join(","),v=h.map(p=>`'${String(b[p]).replace(/'/g,"''")}'`).join(","),y=await c("/query","POST",{query:`INSERT INTO "${t}" (${u}) VALUES (${v})`,type:"sql"});if(y.error){alert(`Row ${g+1} failed: ${y.error}`);break}g++}document.getElementById("paste-data").value="",document.getElementById("paste-new-table").value="",document.getElementById("paste-table").selectedIndex=0,I(),$(),g>0&&k(t)}catch(d){alert("Import error: "+d.message)}}async function X(){var t,r;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,a=parseInt(((r=document.getElementById("db-seed-count"))==null?void 0:r.value)||"10");if(e)try{const o=await c("/seed","POST",{table:e,count:a});o.error?alert(o.error):k(e)}catch(o){alert("Seed error: "+o.message)}}window.__loadTables=$,window.__selectTable=k,window.__updateLimit=J,window.__runQuery=M,window.__copyCSV=K,window.__copyJSON=Q,window.__showPaste=W,window.__hidePaste=I,window.__doPaste=G,window.__seedTable=X;function Y(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Errors <span id="errors-count" class="text-muted text-sm"></span></h2>
       <div class="flex gap-sm">
@@ -164,35 +164,35 @@ tr:hover { background: rgba(255,255,255,0.03); }
       </div>
     </div>
     <div id="errors-body"></div>
-  `,_()}async function _(){const e=await c("/broken"),a=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const o=e.errors||[];if(a&&(a.textContent=`(${o.length})`),!o.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=o.map((r,s)=>`
+  `,_()}async function _(){const e=await c("/broken"),a=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const r=e.errors||[];if(a&&(a.textContent=`(${r.length})`),!r.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=r.map((o,s)=>`
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem;margin-bottom:0.75rem">
       <div class="flex items-center" style="justify-content:space-between">
         <div>
           <span class="badge badge-danger">UNRESOLVED</span>
-          <strong style="margin-left:0.5rem;font-size:0.85rem">${n(r.error||r.message||"Unknown error")}</strong>
+          <strong style="margin-left:0.5rem;font-size:0.85rem">${n(o.error||o.message||"Unknown error")}</strong>
         </div>
         <div class="flex gap-sm">
-          <button class="btn btn-sm" onclick="window.__resolveError('${n(r.id||String(s))}')">Resolve</button>
+          <button class="btn btn-sm" onclick="window.__resolveError('${n(o.id||String(s))}')">Resolve</button>
           <button class="btn btn-sm btn-primary" onclick="window.__askAboutError(${s})">Ask Tina4</button>
         </div>
       </div>
-      ${r.traceback?`<div class="error-trace">${n(r.traceback)}</div>`:""}
-      <div class="text-sm text-muted" style="margin-top:0.5rem">${n(r.timestamp||"")}</div>
+      ${o.traceback?`<div class="error-trace">${n(o.traceback)}</div>`:""}
+      <div class="text-sm text-muted" style="margin-top:0.5rem">${n(o.timestamp||"")}</div>
     </div>
-  `).join(""),window.__errorData=o}async function Z(e){await c("/broken/resolve","POST",{id:e}),_()}async function ee(){await c("/broken/clear","POST"),_()}function te(e){const t=(window.__errorData||[])[e];if(!t)return;const o=document.querySelector('[data-tab="chat"]');o&&o.click(),setTimeout(()=>{const r=document.getElementById("chat-input");r&&(r.value=`I have this error: ${t.error||t.message}
+  `).join(""),window.__errorData=r}async function Z(e){await c("/broken/resolve","POST",{id:e}),_()}async function ee(){await c("/broken/clear","POST"),_()}function te(e){const t=(window.__errorData||[])[e];if(!t)return;const r=document.querySelector('[data-tab="chat"]');r&&r.click(),setTimeout(()=>{const o=document.getElementById("chat-input");o&&(o.value=`I have this error: ${t.error||t.message}
 
-${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=ee,window.__resolveError=Z,window.__askAboutError=te;function ae(e){e.innerHTML=`
+${t.traceback||""}`,o.focus())},100)}window.__loadErrors=_,window.__clearErrors=ee,window.__resolveError=Z,window.__askAboutError=te;function ae(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>System</h2>
       <button class="btn btn-sm" onclick="window.__loadSystem()">Refresh</button>
     </div>
     <div id="system-grid" class="metric-grid"></div>
-  `,C()}async function C(){const e=await c("/system"),a=document.getElementById("system-grid");if(!a)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];a.innerHTML=t.map(o=>`
+  `,C()}async function C(){const e=await c("/system"),a=document.getElementById("system-grid");if(!a)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];a.innerHTML=t.map(r=>`
     <div class="metric-card">
-      <div class="label">${n(o.label)}</div>
-      <div class="value" style="font-size:1.1rem">${n(o.value)}</div>
+      <div class="label">${n(r.label)}</div>
+      <div class="value" style="font-size:1.1rem">${n(r.value)}</div>
     </div>
-  `).join("")}window.__loadSystem=C;function oe(e){e.innerHTML=`
+  `).join("")}window.__loadSystem=C;function re(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code Metrics</h2>
       <div class="flex gap-sm">
@@ -203,12 +203,12 @@ ${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=
     <div id="metrics-quick" class="metric-grid"></div>
     <div id="metrics-chart" class="bubble-chart" style="display:none"></div>
     <div id="metrics-detail" style="margin-top:1rem"></div>
-  `,L()}async function L(){const e=await c("/metrics"),a=document.getElementById("metrics-quick");if(!a||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];a.innerHTML=t.map(o=>`
+  `,L()}async function L(){const e=await c("/metrics"),a=document.getElementById("metrics-quick");if(!a||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];a.innerHTML=t.map(r=>`
     <div class="metric-card">
-      <div class="label">${n(o.label)}</div>
-      <div class="value">${n(o.value)}</div>
+      <div class="label">${n(r.label)}</div>
+      <div class="value">${n(r.value)}</div>
     </div>
-  `).join("")}async function re(){var o;const e=document.getElementById("metrics-chart"),a=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await c("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${n(t.error||"No data")}</p>`);return}ne(t.file_metrics,e),a&&(a.innerHTML=`
+  `).join("")}async function oe(){var r;const e=document.getElementById("metrics-chart"),a=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await c("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${n(t.error||"No data")}</p>`);return}ne(t.file_metrics,e),a&&(a.innerHTML=`
       <div class="metric-grid">
         <div class="metric-card"><div class="label">Files Analyzed</div><div class="value">${t.files_analyzed}</div></div>
         <div class="metric-card"><div class="label">Total Functions</div><div class="value">${t.total_functions}</div></div>
@@ -216,14 +216,14 @@ ${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=
         <div class="metric-card"><div class="label">Avg Maintainability</div><div class="value">${t.avg_maintainability}</div></div>
         <div class="metric-card"><div class="label">Scan Mode</div><div class="value">${n(t.scan_mode||"project")}</div></div>
       </div>
-      ${(o=t.most_complex_functions)!=null&&o.length?`
+      ${(r=t.most_complex_functions)!=null&&r.length?`
         <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem">Most Complex Functions</h3>
         <table><thead><tr><th>Function</th><th>File</th><th>Complexity</th><th>LOC</th></tr></thead>
-        <tbody>${t.most_complex_functions.slice(0,10).map(r=>`
-          <tr><td class="text-mono">${n(r.name)}</td><td class="text-sm text-muted">${n(r.file)}</td>
-          <td>${r.complexity}</td><td>${r.loc}</td></tr>`).join("")}</tbody></table>
+        <tbody>${t.most_complex_functions.slice(0,10).map(o=>`
+          <tr><td class="text-mono">${n(o.name)}</td><td class="text-sm text-muted">${n(o.file)}</td>
+          <td>${o.complexity}</td><td>${o.loc}</td></tr>`).join("")}</tbody></table>
       `:""}
-    `)}function ne(e,a){const t=a.clientWidth||800,o=400,r=Math.max(...e.map(d=>d.loc||1));let s=`<svg width="${t}" height="${o}" style="background:var(--surface)">`;const m=Math.ceil(Math.sqrt(e.length)),l=t/m,i=o/Math.ceil(e.length/m);e.forEach((d,g)=>{var R;const b=g%m,h=Math.floor(g/m),u=b*l+l/2,v=h*i+i/2,y=Math.max(8,Math.sqrt(d.loc/r)*Math.min(l,i)*.4),p=d.maintainability??50,A=`hsl(${Math.min(120,Math.max(0,p*1.2))}, 70%, 50%)`;s+=`<circle cx="${u}" cy="${v}" r="${y}" fill="${A}" fill-opacity="0.7" stroke="${A}" stroke-width="1"
+    `)}function ne(e,a){const t=a.clientWidth||800,r=400,o=Math.max(...e.map(d=>d.loc||1));let s=`<svg width="${t}" height="${r}" style="background:var(--surface)">`;const m=Math.ceil(Math.sqrt(e.length)),l=t/m,i=r/Math.ceil(e.length/m);e.forEach((d,g)=>{var R;const b=g%m,h=Math.floor(g/m),u=b*l+l/2,v=h*i+i/2,y=Math.max(8,Math.sqrt(d.loc/o)*Math.min(l,i)*.4),p=d.maintainability??50,A=`hsl(${Math.min(120,Math.max(0,p*1.2))}, 70%, 50%)`;s+=`<circle cx="${u}" cy="${v}" r="${y}" fill="${A}" fill-opacity="0.7" stroke="${A}" stroke-width="1"
       style="cursor:pointer" onclick="window.__drillDown('${n(d.path)}')" />`,s+=`<text x="${u}" y="${v+y+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${n(((R=d.path)==null?void 0:R.split("/").pop())||"")}</text>`}),s+="</svg>",a.innerHTML=s}async function se(e){const a=document.getElementById("metrics-detail");if(!a)return;a.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await c("/metrics/file?path="+encodeURIComponent(e));if(t.error){a.innerHTML=`<p style="color:var(--danger)">${n(t.error)}</p>`;return}a.innerHTML=`
     <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${n(t.path)}</h3>
     <div class="metric-grid">
@@ -234,15 +234,15 @@ ${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=
     </div>
     ${(t.functions||[]).length?`
       <table><thead><tr><th>Function</th><th>Line</th><th>Complexity</th><th>LOC</th><th>Args</th></tr></thead>
-      <tbody>${t.functions.map(o=>`
-        <tr><td class="text-mono">${n(o.name)}</td><td>${o.line}</td><td>${o.complexity}</td><td>${o.loc}</td><td class="text-sm text-muted">${(o.args||[]).join(", ")}</td></tr>
+      <tbody>${t.functions.map(r=>`
+        <tr><td class="text-mono">${n(r.name)}</td><td>${r.line}</td><td>${r.complexity}</td><td>${r.loc}</td><td class="text-sm text-muted">${(r.args||[]).join(", ")}</td></tr>
       `).join("")}</tbody></table>
     `:""}
     ${(t.warnings||[]).length?`
       <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem;color:var(--warn)">Warnings</h3>
-      ${t.warnings.map(o=>`<p class="text-sm" style="color:var(--warn)">Line ${o.line}: ${n(o.message)}</p>`).join("")}
+      ${t.warnings.map(r=>`<p class="text-sm" style="color:var(--warn)">Line ${r.line}: ${n(r.message)}</p>`).join("")}
     `:""}
-  `}window.__loadMetrics=L,window.__loadFullMetrics=re,window.__drillDown=se;let B="anthropic",x="";function ie(e){e.innerHTML=`
+  `}window.__loadMetrics=L,window.__loadFullMetrics=oe,window.__drillDown=se;let B="anthropic",x="";function ie(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code With Me</h2>
       <div class="flex gap-sm items-center">
@@ -266,7 +266,7 @@ ${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=
         <button class="btn btn-sm" onclick="window.__undoChat()" title="Undo last file change">Undo</button>
       </div>
     </div>
-  `}async function de(){var r;const e=document.getElementById("chat-input"),a=(r=e==null?void 0:e.value)==null?void 0:r.trim();if(!a)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${n(a)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const o={message:a,provider:B};x&&(o.api_key=x);try{const s=await c("/chat","POST",o),m=document.getElementById("chat-loading");m&&m.remove();let l=ue(s.reply||"No response");s.files_changed&&s.files_changed.length>0&&(l+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',l+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',s.files_changed.forEach(i=>{l+=`<div class="text-sm text-mono">${n(i)}</div>`}),l+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${l}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${n(s.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const s=document.getElementById("chat-loading");s&&(s.textContent="Error connecting",s.id="")}}async function le(){try{const e=await c("/chat/undo","POST"),a=document.getElementById("chat-messages");a&&(a.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${n(e.message||"Undo complete")}</div>`,a.scrollTop=a.scrollHeight)}catch{alert("Nothing to undo")}}function ce(){const e=document.getElementById("ai-key");x=(e==null?void 0:e.value)||"";const a=document.getElementById("ai-status");a&&(a.textContent=x?"Key set":"No key")}function me(e){B=e}function ue(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=de,window.__undoChat=le,window.__setAiKey=ce,window.__setProvider=me;const H=document.createElement("style");H.textContent=q,document.head.appendChild(H);const P=F();N(P);const j=[{id:"chat",label:"Code With Me",render:ie},{id:"routes",label:"Routes",render:U},{id:"database",label:"Database",render:V},{id:"errors",label:"Errors",render:Y},{id:"metrics",label:"Metrics",render:oe},{id:"system",label:"System",render:ae}];let T="chat";function pe(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
+  `}async function de(){var o;const e=document.getElementById("chat-input"),a=(o=e==null?void 0:e.value)==null?void 0:o.trim();if(!a)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${n(a)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const r={message:a,provider:B};x&&(r.api_key=x);try{const s=await c("/chat","POST",r),m=document.getElementById("chat-loading");m&&m.remove();let l=ue(s.reply||"No response");s.files_changed&&s.files_changed.length>0&&(l+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',l+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',s.files_changed.forEach(i=>{l+=`<div class="text-sm text-mono">${n(i)}</div>`}),l+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${l}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${n(s.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const s=document.getElementById("chat-loading");s&&(s.textContent="Error connecting",s.id="")}}async function le(){try{const e=await c("/chat/undo","POST"),a=document.getElementById("chat-messages");a&&(a.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${n(e.message||"Undo complete")}</div>`,a.scrollTop=a.scrollHeight)}catch{alert("Nothing to undo")}}function ce(){const e=document.getElementById("ai-key");x=(e==null?void 0:e.value)||"";const a=document.getElementById("ai-status");a&&(a.textContent=x?"Key set":"No key")}function me(e){B=e}function ue(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=de,window.__undoChat=le,window.__setAiKey=ce,window.__setProvider=me;const H=document.createElement("style");H.textContent=q,document.head.appendChild(H);const P=N();F(P);const j=[{id:"chat",label:"Code With Me",render:ie},{id:"routes",label:"Routes",render:V},{id:"database",label:"Database",render:U},{id:"errors",label:"Errors",render:Y},{id:"metrics",label:"Metrics",render:re},{id:"system",label:"System",render:ae}];let T="chat";function pe(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
     <div class="dev-admin">
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
@@ -275,4 +275,4 @@ ${t.traceback||""}`,r.focus())},100)}window.__loadErrors=_,window.__clearErrors=
       <div class="dev-tabs" id="tab-bar"></div>
       <div class="dev-content" id="tab-content"></div>
     </div>
-  `;const a=document.getElementById("tab-bar");a.innerHTML=j.map(t=>`<button class="dev-tab ${t.id===T?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),z(T)}function z(e){T=e,document.querySelectorAll(".dev-tab").forEach(r=>{r.classList.toggle("active",r.dataset.tab===e)});const a=document.getElementById("tab-content");if(!a)return;const t=document.createElement("div");t.className="dev-panel active",a.innerHTML="",a.appendChild(t);const o=j.find(r=>r.id===e);o&&o.render(t)}window.__switchTab=z,pe()})();
+  `;const a=document.getElementById("tab-bar");a.innerHTML=j.map(t=>`<button class="dev-tab ${t.id===T?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),O(T)}function O(e){T=e,document.querySelectorAll(".dev-tab").forEach(o=>{o.classList.toggle("active",o.dataset.tab===e)});const a=document.getElementById("tab-content");if(!a)return;const t=document.createElement("div");t.className="dev-panel active",a.innerHTML="",a.appendChild(t);const r=j.find(o=>o.id===e);r&&r.render(t)}window.__switchTab=O,pe()})();
