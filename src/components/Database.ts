@@ -31,7 +31,7 @@ export function renderDatabase(container: HTMLElement): void {
             <option value="graphql">GraphQL</option>
           </select>
           <span class="text-sm text-muted">Limit</span>
-          <select id="db-limit" class="input" style="width:60px" onchange="window.__updateLimit()">
+          <select id="db-limit" class="input" style="width:60px">
             <option value="20">20</option>
             <option value="50">50</option>
             <option value="100">100</option>
@@ -43,7 +43,7 @@ export function renderDatabase(container: HTMLElement): void {
           <button class="btn btn-sm" onclick="window.__showPaste()">Paste</button>
           <span class="text-sm text-muted">Ctrl+Enter</span>
         </div>
-        <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users LIMIT 20" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
+        <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
         <div id="db-result" style="flex:1;overflow:auto;margin-top:0.75rem"></div>
       </div>
     </div>
@@ -93,7 +93,7 @@ async function loadTables(): Promise<void> {
 function selectTable(name: string): void {
   const limit = (document.getElementById("db-limit") as HTMLSelectElement)?.value || "20";
   const textarea = document.getElementById("db-query") as HTMLTextAreaElement;
-  if (textarea) textarea.value = `SELECT * FROM ${name} LIMIT ${limit}`;
+  if (textarea) textarea.value = `SELECT * FROM ${name}`;
   
   // Highlight selected
   document.querySelectorAll(".db-table-item").forEach(el => {
@@ -119,7 +119,8 @@ async function runQuery(): Promise<void> {
   const queryType = (document.getElementById("db-type") as HTMLSelectElement)?.value || "sql";
   if (result) result.innerHTML = '<p class="text-muted">Running...</p>';
   try {
-    const d = await api<any>("/query", "POST", { query: sql, type: queryType });
+    const limit = parseInt((document.getElementById("db-limit") as HTMLSelectElement)?.value || "20");
+    const d = await api<any>("/query", "POST", { query: sql, type: queryType, limit });
     if (d.error) {
       if (result) result.innerHTML = `<p style="color:var(--danger)">${esc(d.error)}</p>`;
       return;
