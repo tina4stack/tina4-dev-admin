@@ -1,0 +1,19 @@
+{
+  "name": "tina4-dev-admin",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tina4 Dev Admin — Unified SPA for all 4 frameworks",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "node scripts/deploy.js"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "tina4js": "^1.0.15"
+  }
+}
