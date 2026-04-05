@@ -191,7 +191,8 @@ async function doPaste(): Promise<void> {
       if (!Array.isArray(rows)) rows = [rows];
     } catch {
       const lines = data.split("\n").map(l => l.trim()).filter(Boolean);
-      const headers = lines[0].split(",").map(h => h.trim());
+      if (lines.length < 2) { alert("CSV needs at least a header row and one data row."); return; }
+      const headers = lines[0].split(",").map(h => h.trim().replace(/[^a-zA-Z0-9_]/g, ""));
       rows = lines.slice(1).map(line => {
         const vals = line.split(",").map(v => v.trim());
         const obj: any = {};
@@ -205,20 +206,28 @@ async function doPaste(): Promise<void> {
     // Create table if new name provided
     if (newTable) {
       const cols = Object.keys(rows[0]);
-      const colDefs = ["id INTEGER PRIMARY KEY AUTOINCREMENT", ...cols.map(c => `${c} TEXT`)];
-      await api("/query", "POST", { query: `CREATE TABLE IF NOT EXISTS ${newTable} (${colDefs.join(", ")})`, type: "sql" });
+      const colDefs = ["id INTEGER PRIMARY KEY AUTOINCREMENT", ...cols.map(c => `"${c}" TEXT`)];
+      const createResult = await api<any>("/query", "POST", { query: `CREATE TABLE IF NOT EXISTS "${newTable}" (${colDefs.join(", ")})`, type: "sql" });
+      if (createResult.error) { alert("Create table failed: " + createResult.error); return; }
     }
 
-    // Insert each row
+    // Insert rows one by one
+    let inserted = 0;
     for (const row of rows) {
       const cols = Object.keys(row);
-      const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`);
-      await api("/query", "POST", { query: `INSERT INTO ${table} (${cols.join(",")}) VALUES (${vals.join(",")})`, type: "sql" });
+      const quotedCols = cols.map(c => `"${c}"`).join(",");
+      const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`).join(",");
+      const result = await api<any>("/query", "POST", { query: `INSERT INTO "${table}" (${quotedCols}) VALUES (${vals})`, type: "sql" });
+      if (result.error) { alert(`Row ${inserted + 1} failed: ${result.error}`); break; }
+      inserted++;
     }
 
     hidePaste();
     loadTables();
-    selectTable(table);
+    if (inserted > 0) {
+      selectTable(table);
+      alert(`Imported ${inserted} rows into "${table}"`);
+    }
   } catch (e: any) {
     alert("Import error: " + e.message);
   }
