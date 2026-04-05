@@ -2,6 +2,7 @@ import { api, esc } from "../api.js";
 
 let lastResults: any[] = [];
 let lastColumns: string[] = [];
+let queryHistory: string[] = JSON.parse(localStorage.getItem("tina4_query_history") || "[]");
 
 export function renderDatabase(container: HTMLElement): void {
   container.innerHTML = `
@@ -45,6 +46,12 @@ export function renderDatabase(container: HTMLElement): void {
           <button class="btn" onclick="window.__showPaste()">Paste</button>
           <span class="text-sm text-muted">Ctrl+Enter</span>
         </div>
+        <div class="flex gap-sm items-center" style="margin-bottom:0.25rem">
+          <select id="db-history" class="input text-mono" style="flex:1" onchange="window.__loadHistory(this.value)">
+            <option value="">Query history...</option>
+          </select>
+          <button class="btn btn-sm" onclick="window.__clearHistory()" title="Clear history" style="height:30px">Clear</button>
+        </div>
         <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
         <div id="db-result" style="flex:1;overflow:auto;margin-top:0.75rem"></div>
       </div>
@@ -67,6 +74,7 @@ export function renderDatabase(container: HTMLElement): void {
     </div>
   `;
   loadTables();
+  renderHistory();
 }
 
 async function loadTables(): Promise<void> {
@@ -117,10 +125,45 @@ function updateLimit(): void {
   }
 }
 
+function addToHistory(sql: string): void {
+  const trimmed = sql.trim();
+  if (!trimmed) return;
+  // Remove if already exists, add to front
+  queryHistory = queryHistory.filter(q => q !== trimmed);
+  queryHistory.unshift(trimmed);
+  // Keep max 50
+  if (queryHistory.length > 50) queryHistory = queryHistory.slice(0, 50);
+  localStorage.setItem("tina4_query_history", JSON.stringify(queryHistory));
+  renderHistory();
+}
+
+function renderHistory(): void {
+  const select = document.getElementById("db-history") as HTMLSelectElement;
+  if (!select) return;
+  select.innerHTML = '<option value="">Query history...</option>' +
+    queryHistory.map((q, i) => `<option value="${i}">${esc(q.length > 80 ? q.substring(0, 80) + "..." : q)}</option>`).join("");
+}
+
+function loadHistory(index: string): void {
+  const i = parseInt(index);
+  if (isNaN(i) || !queryHistory[i]) return;
+  const textarea = document.getElementById("db-query") as HTMLTextAreaElement;
+  if (textarea) textarea.value = queryHistory[i];
+  // Reset dropdown
+  (document.getElementById("db-history") as HTMLSelectElement).selectedIndex = 0;
+}
+
+function clearHistory(): void {
+  queryHistory = [];
+  localStorage.removeItem("tina4_query_history");
+  renderHistory();
+}
+
 async function runQuery(): Promise<void> {
   const textarea = document.getElementById("db-query") as HTMLTextAreaElement;
   const sql = textarea?.value?.trim();
   if (!sql) return;
+  addToHistory(sql);
   const result = document.getElementById("db-result");
   const queryType = (document.getElementById("db-type") as HTMLSelectElement)?.value || "sql";
   if (result) result.innerHTML = '<p class="text-muted">Running...</p>';
@@ -263,3 +306,5 @@ async function seedTable(): Promise<void> {
 (window as any).__hidePaste = hidePaste;
 (window as any).__doPaste = doPaste;
 (window as any).__seedTable = seedTable;
+(window as any).__loadHistory = loadHistory;
+(window as any).__clearHistory = clearHistory;
