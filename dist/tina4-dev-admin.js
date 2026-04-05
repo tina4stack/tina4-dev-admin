@@ -1,4 +1,4 @@
-(function(){"use strict";const x={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function A(){const e=document.getElementById("app"),o=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,r=x[o]??x.python;return{framework:o,color:t??r.color,name:r.name}}function F(e){const o=document.documentElement;o.style.setProperty("--primary",e.color),o.style.setProperty("--bg","#0f172a"),o.style.setProperty("--surface","#1e293b"),o.style.setProperty("--border","#334155"),o.style.setProperty("--text","#e2e8f0"),o.style.setProperty("--muted","#94a3b8"),o.style.setProperty("--success","#22c55e"),o.style.setProperty("--danger","#ef4444"),o.style.setProperty("--warn","#f59e0b"),o.style.setProperty("--info","#3b82f6")}const R=`
+(function(){"use strict";const E={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function R(){const e=document.getElementById("app"),o=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,a=E[o]??E.python;return{framework:o,color:t??a.color,name:a.name}}function F(e){const o=document.documentElement;o.style.setProperty("--primary",e.color),o.style.setProperty("--bg","#0f172a"),o.style.setProperty("--surface","#1e293b"),o.style.setProperty("--border","#334155"),o.style.setProperty("--text","#e2e8f0"),o.style.setProperty("--muted","#94a3b8"),o.style.setProperty("--success","#22c55e"),o.style.setProperty("--danger","#ef4444"),o.style.setProperty("--warn","#f59e0b"),o.style.setProperty("--info","#3b82f6")}const N=`
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
 
@@ -74,7 +74,7 @@ tr:hover { background: rgba(255,255,255,0.03); }
 .error-trace { background: var(--bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.5rem; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 0.5rem; }
 
 .bubble-chart { width: 100%; height: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
-`,q="/__dev/api";async function c(e,o="GET",t){const r={method:o,headers:{}};return t&&(r.headers["Content-Type"]="application/json",r.body=JSON.stringify(t)),(await fetch(q+e,r)).json()}function a(e){const o=document.createElement("span");return o.textContent=e,o.innerHTML}function N(e){e.innerHTML=`
+`,q="/__dev/api";async function c(e,o="GET",t){const a={method:o,headers:{}};return t&&(a.headers["Content-Type"]="application/json",a.body=JSON.stringify(t)),(await fetch(q+e,a)).json()}function r(e){const o=document.createElement("span");return o.textContent=e,o.innerHTML}function D(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Routes <span id="routes-count" class="text-muted text-sm"></span></h2>
       <button class="btn btn-sm" onclick="window.__loadRoutes()">Refresh</button>
@@ -83,14 +83,14 @@ tr:hover { background: rgba(255,255,255,0.03); }
       <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Handler</th></tr></thead>
       <tbody id="routes-body"></tbody>
     </table>
-  `,_()}async function _(){const e=await c("/routes"),o=document.getElementById("routes-count");o&&(o.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(r=>`
+  `,M()}async function M(){const e=await c("/routes"),o=document.getElementById("routes-count");o&&(o.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(a=>`
     <tr>
-      <td><span class="method method-${r.method.toLowerCase()}">${a(r.method)}</span></td>
-      <td class="text-mono"><a href="${a(r.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a(r.path)}</a></td>
-      <td>${r.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
-      <td class="text-sm text-muted">${a(r.handler||"")} <small>(${a(r.module||"")})</small></td>
+      <td><span class="method method-${a.method.toLowerCase()}">${r(a.method)}</span></td>
+      <td class="text-mono"><a href="${r(a.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${r(a.path)}</a></td>
+      <td>${a.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
+      <td class="text-sm text-muted">${r(a.handler||"")} <small>(${r(a.module||"")})</small></td>
     </tr>
-  `).join(""))}window.__loadRoutes=_;let u=[],p=[];function D(e){e.innerHTML=`
+  `).join(""))}window.__loadRoutes=M;let v=[],g=[];function U(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Database</h2>
       <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
@@ -139,21 +139,23 @@ tr:hover { background: rgba(255,255,255,0.03); }
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.5rem;width:600px;max-height:80vh;overflow:auto">
         <h3 style="margin-bottom:0.75rem;font-size:0.9rem">Paste Data</h3>
         <p class="text-sm text-muted" style="margin-bottom:0.5rem">Paste CSV or JSON array. First row = column headers for CSV.</p>
-        <select id="paste-table" class="input" style="width:100%;margin-bottom:0.5rem"><option value="">Select table...</option></select>
-        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email
-Alice,alice@test.com
-Bob,bob@test.com'></textarea>
+        <div class="flex gap-sm items-center" style="margin-bottom:0.5rem">
+          <select id="paste-table" class="input" style="flex:1"><option value="">Select existing table...</option></select>
+          <span class="text-sm text-muted">or</span>
+          <input type="text" id="paste-new-table" class="input" placeholder="New table name..." style="flex:1">
+        </div>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email&#10;Alice,alice@test.com&#10;Bob,bob@test.com'></textarea>
         <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
-          <button class="btn btn-sm" onclick="window.__hidePaste()">Cancel</button>
-          <button class="btn btn-sm btn-primary" onclick="window.__doPaste()">Import</button>
+          <button class="btn" onclick="window.__hidePaste()">Cancel</button>
+          <button class="btn btn-primary" onclick="window.__doPaste()">Import</button>
         </div>
       </div>
     </div>
-  `,k()}async function k(){const o=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=o.length?o.map(i=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${a(i)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${a(i)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const r=document.getElementById("db-seed-table");r&&(r.innerHTML='<option value="">Pick table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""));const n=document.getElementById("paste-table");n&&(n.innerHTML='<option value="">Select table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""))}function y(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const o=document.getElementById("db-query");o&&(o.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(r=>{r.style.background=r.textContent===e?"var(--border)":""}),$()}function U(){var t;const e=document.getElementById("db-query"),o=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${o}`))}async function $(){var n,i,l;const e=document.getElementById("db-query"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;const t=document.getElementById("db-result"),r=((i=document.getElementById("db-type"))==null?void 0:i.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const d=parseInt(((l=document.getElementById("db-limit"))==null?void 0:l.value)||"20"),s=await c("/query","POST",{query:o,type:r,limit:d});if(s.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(s.error)}</p>`);return}s.rows&&s.rows.length>0?(p=Object.keys(s.rows[0]),u=s.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${s.count??s.rows.length} rows</p>
-        <div style="overflow-x:auto"><table><thead><tr>${p.map(m=>`<th>${a(m)}</th>`).join("")}</tr></thead>
-        <tbody>${s.rows.map(m=>`<tr>${p.map(b=>`<td class="text-sm">${a(String(m[b]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):s.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${s.affected} rows affected. ${s.success?"Success.":""}</p>`),u=[],p=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),u=[],p=[])}catch(d){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(d.message)}</p>`)}}function V(){if(!u.length)return;const e=p.join(","),o=u.map(t=>p.map(r=>{const n=String(t[r]??"");return n.includes(",")||n.includes('"')?`"${n.replace(/"/g,'""')}"`:n}).join(","));navigator.clipboard.writeText([e,...o].join(`
-`))}function J(){u.length&&navigator.clipboard.writeText(JSON.stringify(u,null,2))}function K(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function T(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function Q(){var t,r,n;const e=(t=document.getElementById("paste-table"))==null?void 0:t.value,o=(n=(r=document.getElementById("paste-data"))==null?void 0:r.value)==null?void 0:n.trim();if(!(!e||!o))try{let i;try{i=JSON.parse(o)}catch{const l=o.split(`
-`).map(s=>s.trim()).filter(Boolean),d=l[0].split(",").map(s=>s.trim());i=l.slice(1).map(s=>{const m=s.split(",").map(g=>g.trim()),b={};return d.forEach((g,w)=>{b[g]=m[w]??""}),b})}for(const l of i){const d=Object.keys(l),s=d.map(m=>`'${String(l[m]).replace(/'/g,"''")}'`);await c("/query","POST",{query:`INSERT INTO ${e} (${d.join(",")}) VALUES (${s.join(",")})`,type:"sql"})}T(),y(e)}catch(i){alert("Import error: "+i.message)}}async function W(){var t,r;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,o=parseInt(((r=document.getElementById("db-seed-count"))==null?void 0:r.value)||"10");if(e)try{const n=await c("/seed","POST",{table:e,count:o});n.error?alert(n.error):y(e)}catch(n){alert("Seed error: "+n.message)}}window.__loadTables=k,window.__selectTable=y,window.__updateLimit=U,window.__runQuery=$,window.__copyCSV=V,window.__copyJSON=J,window.__showPaste=K,window.__hidePaste=T,window.__doPaste=Q,window.__seedTable=W;function G(e){e.innerHTML=`
+  `,_()}async function _(){const o=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=o.length?o.map(s=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${r(s)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${r(s)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const a=document.getElementById("db-seed-table");a&&(a.innerHTML='<option value="">Pick table...</option>'+o.map(s=>`<option value="${r(s)}">${r(s)}</option>`).join(""));const n=document.getElementById("paste-table");n&&(n.innerHTML='<option value="">Select table...</option>'+o.map(s=>`<option value="${r(s)}">${r(s)}</option>`).join(""))}function $(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const o=document.getElementById("db-query");o&&(o.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(a=>{a.style.background=a.textContent===e?"var(--border)":""}),S()}function K(){var t;const e=document.getElementById("db-query"),o=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${o}`))}async function S(){var n,s,m;const e=document.getElementById("db-query"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;const t=document.getElementById("db-result"),a=((s=document.getElementById("db-type"))==null?void 0:s.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const l=parseInt(((m=document.getElementById("db-limit"))==null?void 0:m.value)||"20"),i=await c("/query","POST",{query:o,type:a,limit:l});if(i.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${r(i.error)}</p>`);return}i.rows&&i.rows.length>0?(g=Object.keys(i.rows[0]),v=i.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${i.count??i.rows.length} rows</p>
+        <div style="overflow-x:auto"><table><thead><tr>${g.map(d=>`<th>${r(d)}</th>`).join("")}</tr></thead>
+        <tbody>${i.rows.map(d=>`<tr>${g.map(u=>`<td class="text-sm">${r(String(d[u]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):i.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${i.affected} rows affected. ${i.success?"Success.":""}</p>`),v=[],g=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),v=[],g=[])}catch(l){t&&(t.innerHTML=`<p style="color:var(--danger)">${r(l.message)}</p>`)}}function V(){if(!v.length)return;const e=g.join(","),o=v.map(t=>g.map(a=>{const n=String(t[a]??"");return n.includes(",")||n.includes('"')?`"${n.replace(/"/g,'""')}"`:n}).join(","));navigator.clipboard.writeText([e,...o].join(`
+`))}function J(){v.length&&navigator.clipboard.writeText(JSON.stringify(v,null,2))}function Q(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function I(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function W(){var n,s,m,l,i;const e=(n=document.getElementById("paste-table"))==null?void 0:n.value,o=(m=(s=document.getElementById("paste-new-table"))==null?void 0:s.value)==null?void 0:m.trim(),t=o||e,a=(i=(l=document.getElementById("paste-data"))==null?void 0:l.value)==null?void 0:i.trim();if(!t||!a){alert("Select a table or enter a new table name, and paste data.");return}try{let d;try{d=JSON.parse(a),Array.isArray(d)||(d=[d])}catch{const u=a.split(`
+`).map(p=>p.trim()).filter(Boolean),b=u[0].split(",").map(p=>p.trim());d=u.slice(1).map(p=>{const h=p.split(",").map(y=>y.trim()),w={};return b.forEach((y,T)=>{w[y]=h[T]??""}),w})}if(!d.length){alert("No data rows found.");return}if(o){const b=["id INTEGER PRIMARY KEY AUTOINCREMENT",...Object.keys(d[0]).map(p=>`${p} TEXT`)];await c("/query","POST",{query:`CREATE TABLE IF NOT EXISTS ${o} (${b.join(", ")})`,type:"sql"})}for(const u of d){const b=Object.keys(u),p=b.map(h=>`'${String(u[h]).replace(/'/g,"''")}'`);await c("/query","POST",{query:`INSERT INTO ${t} (${b.join(",")}) VALUES (${p.join(",")})`,type:"sql"})}I(),_(),$(t)}catch(d){alert("Import error: "+d.message)}}async function G(){var t,a;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,o=parseInt(((a=document.getElementById("db-seed-count"))==null?void 0:a.value)||"10");if(e)try{const n=await c("/seed","POST",{table:e,count:o});n.error?alert(n.error):$(e)}catch(n){alert("Seed error: "+n.message)}}window.__loadTables=_,window.__selectTable=$,window.__updateLimit=K,window.__runQuery=S,window.__copyCSV=V,window.__copyJSON=J,window.__showPaste=Q,window.__hidePaste=I,window.__doPaste=W,window.__seedTable=G;function X(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Errors <span id="errors-count" class="text-muted text-sm"></span></h2>
       <div class="flex gap-sm">
@@ -162,35 +164,35 @@ Bob,bob@test.com'></textarea>
       </div>
     </div>
     <div id="errors-body"></div>
-  `,h()}async function h(){const e=await c("/broken"),o=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const r=e.errors||[];if(o&&(o.textContent=`(${r.length})`),!r.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=r.map((n,i)=>`
+  `,x()}async function x(){const e=await c("/broken"),o=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const a=e.errors||[];if(o&&(o.textContent=`(${a.length})`),!a.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=a.map((n,s)=>`
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem;margin-bottom:0.75rem">
       <div class="flex items-center" style="justify-content:space-between">
         <div>
           <span class="badge badge-danger">UNRESOLVED</span>
-          <strong style="margin-left:0.5rem;font-size:0.85rem">${a(n.error||n.message||"Unknown error")}</strong>
+          <strong style="margin-left:0.5rem;font-size:0.85rem">${r(n.error||n.message||"Unknown error")}</strong>
         </div>
         <div class="flex gap-sm">
-          <button class="btn btn-sm" onclick="window.__resolveError('${a(n.id||String(i))}')">Resolve</button>
-          <button class="btn btn-sm btn-primary" onclick="window.__askAboutError(${i})">Ask Tina4</button>
+          <button class="btn btn-sm" onclick="window.__resolveError('${r(n.id||String(s))}')">Resolve</button>
+          <button class="btn btn-sm btn-primary" onclick="window.__askAboutError(${s})">Ask Tina4</button>
         </div>
       </div>
-      ${n.traceback?`<div class="error-trace">${a(n.traceback)}</div>`:""}
-      <div class="text-sm text-muted" style="margin-top:0.5rem">${a(n.timestamp||"")}</div>
+      ${n.traceback?`<div class="error-trace">${r(n.traceback)}</div>`:""}
+      <div class="text-sm text-muted" style="margin-top:0.5rem">${r(n.timestamp||"")}</div>
     </div>
-  `).join(""),window.__errorData=r}async function X(e){await c("/broken/resolve","POST",{id:e}),h()}async function Y(){await c("/broken/clear","POST"),h()}function Z(e){const t=(window.__errorData||[])[e];if(!t)return;const r=document.querySelector('[data-tab="chat"]');r&&r.click(),setTimeout(()=>{const n=document.getElementById("chat-input");n&&(n.value=`I have this error: ${t.error||t.message}
+  `).join(""),window.__errorData=a}async function Y(e){await c("/broken/resolve","POST",{id:e}),x()}async function Z(){await c("/broken/clear","POST"),x()}function ee(e){const t=(window.__errorData||[])[e];if(!t)return;const a=document.querySelector('[data-tab="chat"]');a&&a.click(),setTimeout(()=>{const n=document.getElementById("chat-input");n&&(n.value=`I have this error: ${t.error||t.message}
 
-${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=Y,window.__resolveError=X,window.__askAboutError=Z;function ee(e){e.innerHTML=`
+${t.traceback||""}`,n.focus())},100)}window.__loadErrors=x,window.__clearErrors=Z,window.__resolveError=Y,window.__askAboutError=ee;function te(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>System</h2>
       <button class="btn btn-sm" onclick="window.__loadSystem()">Refresh</button>
     </div>
     <div id="system-grid" class="metric-grid"></div>
-  `,E()}async function E(){const e=await c("/system"),o=document.getElementById("system-grid");if(!o)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];o.innerHTML=t.map(r=>`
+  `,L()}async function L(){const e=await c("/system"),o=document.getElementById("system-grid");if(!o)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];o.innerHTML=t.map(a=>`
     <div class="metric-card">
-      <div class="label">${a(r.label)}</div>
-      <div class="value" style="font-size:1.1rem">${a(r.value)}</div>
+      <div class="label">${r(a.label)}</div>
+      <div class="value" style="font-size:1.1rem">${r(a.value)}</div>
     </div>
-  `).join("")}window.__loadSystem=E;function te(e){e.innerHTML=`
+  `).join("")}window.__loadSystem=L;function oe(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code Metrics</h2>
       <div class="flex gap-sm">
@@ -201,29 +203,29 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=
     <div id="metrics-quick" class="metric-grid"></div>
     <div id="metrics-chart" class="bubble-chart" style="display:none"></div>
     <div id="metrics-detail" style="margin-top:1rem"></div>
-  `,M()}async function M(){const e=await c("/metrics"),o=document.getElementById("metrics-quick");if(!o||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];o.innerHTML=t.map(r=>`
+  `,C()}async function C(){const e=await c("/metrics"),o=document.getElementById("metrics-quick");if(!o||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];o.innerHTML=t.map(a=>`
     <div class="metric-card">
-      <div class="label">${a(r.label)}</div>
-      <div class="value">${a(r.value)}</div>
+      <div class="label">${r(a.label)}</div>
+      <div class="value">${r(a.value)}</div>
     </div>
-  `).join("")}async function oe(){var r;const e=document.getElementById("metrics-chart"),o=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await c("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${a(t.error||"No data")}</p>`);return}re(t.file_metrics,e),o&&(o.innerHTML=`
+  `).join("")}async function ae(){var a;const e=document.getElementById("metrics-chart"),o=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await c("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${r(t.error||"No data")}</p>`);return}ne(t.file_metrics,e),o&&(o.innerHTML=`
       <div class="metric-grid">
         <div class="metric-card"><div class="label">Files Analyzed</div><div class="value">${t.files_analyzed}</div></div>
         <div class="metric-card"><div class="label">Total Functions</div><div class="value">${t.total_functions}</div></div>
         <div class="metric-card"><div class="label">Avg Complexity</div><div class="value">${t.avg_complexity}</div></div>
         <div class="metric-card"><div class="label">Avg Maintainability</div><div class="value">${t.avg_maintainability}</div></div>
-        <div class="metric-card"><div class="label">Scan Mode</div><div class="value">${a(t.scan_mode||"project")}</div></div>
+        <div class="metric-card"><div class="label">Scan Mode</div><div class="value">${r(t.scan_mode||"project")}</div></div>
       </div>
-      ${(r=t.most_complex_functions)!=null&&r.length?`
+      ${(a=t.most_complex_functions)!=null&&a.length?`
         <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem">Most Complex Functions</h3>
         <table><thead><tr><th>Function</th><th>File</th><th>Complexity</th><th>LOC</th></tr></thead>
         <tbody>${t.most_complex_functions.slice(0,10).map(n=>`
-          <tr><td class="text-mono">${a(n.name)}</td><td class="text-sm text-muted">${a(n.file)}</td>
+          <tr><td class="text-mono">${r(n.name)}</td><td class="text-sm text-muted">${r(n.file)}</td>
           <td>${n.complexity}</td><td>${n.loc}</td></tr>`).join("")}</tbody></table>
       `:""}
-    `)}function re(e,o){const t=o.clientWidth||800,r=400,n=Math.max(...e.map(m=>m.loc||1));let i=`<svg width="${t}" height="${r}" style="background:var(--surface)">`;const l=Math.ceil(Math.sqrt(e.length)),d=t/l,s=r/Math.ceil(e.length/l);e.forEach((m,b)=>{var O;const g=b%l,w=Math.floor(b/l),H=g*d+d/2,P=w*s+s/2,z=Math.max(8,Math.sqrt(m.loc/n)*Math.min(d,s)*.4),ue=m.maintainability??50,j=`hsl(${Math.min(120,Math.max(0,ue*1.2))}, 70%, 50%)`;i+=`<circle cx="${H}" cy="${P}" r="${z}" fill="${j}" fill-opacity="0.7" stroke="${j}" stroke-width="1"
-      style="cursor:pointer" onclick="window.__drillDown('${a(m.path)}')" />`,i+=`<text x="${H}" y="${P+z+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${a(((O=m.path)==null?void 0:O.split("/").pop())||"")}</text>`}),i+="</svg>",o.innerHTML=i}async function ne(e){const o=document.getElementById("metrics-detail");if(!o)return;o.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await c("/metrics/file?path="+encodeURIComponent(e));if(t.error){o.innerHTML=`<p style="color:var(--danger)">${a(t.error)}</p>`;return}o.innerHTML=`
-    <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${a(t.path)}</h3>
+    `)}function ne(e,o){const t=o.clientWidth||800,a=400,n=Math.max(...e.map(d=>d.loc||1));let s=`<svg width="${t}" height="${a}" style="background:var(--surface)">`;const m=Math.ceil(Math.sqrt(e.length)),l=t/m,i=a/Math.ceil(e.length/m);e.forEach((d,u)=>{var A;const b=u%m,p=Math.floor(u/m),h=b*l+l/2,w=p*i+i/2,y=Math.max(8,Math.sqrt(d.loc/n)*Math.min(l,i)*.4),T=d.maintainability??50,O=`hsl(${Math.min(120,Math.max(0,T*1.2))}, 70%, 50%)`;s+=`<circle cx="${h}" cy="${w}" r="${y}" fill="${O}" fill-opacity="0.7" stroke="${O}" stroke-width="1"
+      style="cursor:pointer" onclick="window.__drillDown('${r(d.path)}')" />`,s+=`<text x="${h}" y="${w+y+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${r(((A=d.path)==null?void 0:A.split("/").pop())||"")}</text>`}),s+="</svg>",o.innerHTML=s}async function re(e){const o=document.getElementById("metrics-detail");if(!o)return;o.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await c("/metrics/file?path="+encodeURIComponent(e));if(t.error){o.innerHTML=`<p style="color:var(--danger)">${r(t.error)}</p>`;return}o.innerHTML=`
+    <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${r(t.path)}</h3>
     <div class="metric-grid">
       <div class="metric-card"><div class="label">LOC</div><div class="value">${t.loc}</div></div>
       <div class="metric-card"><div class="label">Total Lines</div><div class="value">${t.total_lines}</div></div>
@@ -232,15 +234,15 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=
     </div>
     ${(t.functions||[]).length?`
       <table><thead><tr><th>Function</th><th>Line</th><th>Complexity</th><th>LOC</th><th>Args</th></tr></thead>
-      <tbody>${t.functions.map(r=>`
-        <tr><td class="text-mono">${a(r.name)}</td><td>${r.line}</td><td>${r.complexity}</td><td>${r.loc}</td><td class="text-sm text-muted">${(r.args||[]).join(", ")}</td></tr>
+      <tbody>${t.functions.map(a=>`
+        <tr><td class="text-mono">${r(a.name)}</td><td>${a.line}</td><td>${a.complexity}</td><td>${a.loc}</td><td class="text-sm text-muted">${(a.args||[]).join(", ")}</td></tr>
       `).join("")}</tbody></table>
     `:""}
     ${(t.warnings||[]).length?`
       <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem;color:var(--warn)">Warnings</h3>
-      ${t.warnings.map(r=>`<p class="text-sm" style="color:var(--warn)">Line ${r.line}: ${a(r.message)}</p>`).join("")}
+      ${t.warnings.map(a=>`<p class="text-sm" style="color:var(--warn)">Line ${a.line}: ${r(a.message)}</p>`).join("")}
     `:""}
-  `}window.__loadMetrics=M,window.__loadFullMetrics=oe,window.__drillDown=ne;let S="anthropic",v="";function ae(e){e.innerHTML=`
+  `}window.__loadMetrics=C,window.__loadFullMetrics=ae,window.__drillDown=re;let B="anthropic",f="";function se(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code With Me</h2>
       <div class="flex gap-sm items-center">
@@ -251,7 +253,7 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=
         </select>
         <input type="password" id="ai-key" class="input" placeholder="API key..." style="width:200px">
         <button class="btn btn-sm btn-primary" onclick="window.__setAiKey()">Set</button>
-        <span class="text-sm text-muted" id="ai-status">${v?"Key set":"No key"}</span>
+        <span class="text-sm text-muted" id="ai-status">${f?"Key set":"No key"}</span>
       </div>
     </div>
     <div class="chat-container">
@@ -264,13 +266,13 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=
         <button class="btn btn-sm" onclick="window.__undoChat()" title="Undo last file change">Undo</button>
       </div>
     </div>
-  `}async function ie(){var n;const e=document.getElementById("chat-input"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${a(o)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const r={message:o,provider:S};v&&(r.api_key=v);try{const i=await c("/chat","POST",r),l=document.getElementById("chat-loading");l&&l.remove();let d=ce(i.reply||"No response");i.files_changed&&i.files_changed.length>0&&(d+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',d+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',i.files_changed.forEach(s=>{d+=`<div class="text-sm text-mono">${a(s)}</div>`}),d+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${d}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${a(i.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const i=document.getElementById("chat-loading");i&&(i.textContent="Error connecting",i.id="")}}async function se(){try{const e=await c("/chat/undo","POST"),o=document.getElementById("chat-messages");o&&(o.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${a(e.message||"Undo complete")}</div>`,o.scrollTop=o.scrollHeight)}catch{alert("Nothing to undo")}}function de(){const e=document.getElementById("ai-key");v=(e==null?void 0:e.value)||"";const o=document.getElementById("ai-status");o&&(o.textContent=v?"Key set":"No key")}function le(e){S=e}function ce(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=ie,window.__undoChat=se,window.__setAiKey=de,window.__setProvider=le;const L=document.createElement("style");L.textContent=R,document.head.appendChild(L);const C=A();F(C);const I=[{id:"chat",label:"Code With Me",render:ae},{id:"routes",label:"Routes",render:N},{id:"database",label:"Database",render:D},{id:"errors",label:"Errors",render:G},{id:"metrics",label:"Metrics",render:te},{id:"system",label:"System",render:ee}];let f="chat";function me(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
+  `}async function ie(){var n;const e=document.getElementById("chat-input"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${r(o)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const a={message:o,provider:B};f&&(a.api_key=f);try{const s=await c("/chat","POST",a),m=document.getElementById("chat-loading");m&&m.remove();let l=me(s.reply||"No response");s.files_changed&&s.files_changed.length>0&&(l+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',l+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',s.files_changed.forEach(i=>{l+=`<div class="text-sm text-mono">${r(i)}</div>`}),l+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${l}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${r(s.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const s=document.getElementById("chat-loading");s&&(s.textContent="Error connecting",s.id="")}}async function de(){try{const e=await c("/chat/undo","POST"),o=document.getElementById("chat-messages");o&&(o.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${r(e.message||"Undo complete")}</div>`,o.scrollTop=o.scrollHeight)}catch{alert("Nothing to undo")}}function le(){const e=document.getElementById("ai-key");f=(e==null?void 0:e.value)||"";const o=document.getElementById("ai-status");o&&(o.textContent=f?"Key set":"No key")}function ce(e){B=e}function me(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=ie,window.__undoChat=de,window.__setAiKey=le,window.__setProvider=ce;const H=document.createElement("style");H.textContent=N,document.head.appendChild(H);const P=R();F(P);const j=[{id:"chat",label:"Code With Me",render:se},{id:"routes",label:"Routes",render:D},{id:"database",label:"Database",render:U},{id:"errors",label:"Errors",render:X},{id:"metrics",label:"Metrics",render:oe},{id:"system",label:"System",render:te}];let k="chat";function ue(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
     <div class="dev-admin">
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
-        <span class="text-sm text-muted">${C.name} &bull; v3.10</span>
+        <span class="text-sm text-muted">${P.name} &bull; v3.10</span>
       </div>
       <div class="dev-tabs" id="tab-bar"></div>
       <div class="dev-content" id="tab-content"></div>
     </div>
-  `;const o=document.getElementById("tab-bar");o.innerHTML=I.map(t=>`<button class="dev-tab ${t.id===f?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),B(f)}function B(e){f=e,document.querySelectorAll(".dev-tab").forEach(n=>{n.classList.toggle("active",n.dataset.tab===e)});const o=document.getElementById("tab-content");if(!o)return;const t=document.createElement("div");t.className="dev-panel active",o.innerHTML="",o.appendChild(t);const r=I.find(n=>n.id===e);r&&r.render(t)}window.__switchTab=B,me()})();
+  `;const o=document.getElementById("tab-bar");o.innerHTML=j.map(t=>`<button class="dev-tab ${t.id===k?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),z(k)}function z(e){k=e,document.querySelectorAll(".dev-tab").forEach(n=>{n.classList.toggle("active",n.dataset.tab===e)});const o=document.getElementById("tab-content");if(!o)return;const t=document.createElement("div");t.className="dev-panel active",o.innerHTML="",o.appendChild(t);const a=j.find(n=>n.id===e);a&&a.render(t)}window.__switchTab=z,ue()})();

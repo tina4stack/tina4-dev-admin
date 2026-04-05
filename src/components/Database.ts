@@ -53,11 +53,15 @@ export function renderDatabase(container: HTMLElement): void {
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.5rem;width:600px;max-height:80vh;overflow:auto">
         <h3 style="margin-bottom:0.75rem;font-size:0.9rem">Paste Data</h3>
         <p class="text-sm text-muted" style="margin-bottom:0.5rem">Paste CSV or JSON array. First row = column headers for CSV.</p>
-        <select id="paste-table" class="input" style="width:100%;margin-bottom:0.5rem"><option value="">Select table...</option></select>
-        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email\nAlice,alice@test.com\nBob,bob@test.com'></textarea>
+        <div class="flex gap-sm items-center" style="margin-bottom:0.5rem">
+          <select id="paste-table" class="input" style="flex:1"><option value="">Select existing table...</option></select>
+          <span class="text-sm text-muted">or</span>
+          <input type="text" id="paste-new-table" class="input" placeholder="New table name..." style="flex:1">
+        </div>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email&#10;Alice,alice@test.com&#10;Bob,bob@test.com'></textarea>
         <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
-          <button class="btn btn-sm" onclick="window.__hidePaste()">Cancel</button>
-          <button class="btn btn-sm btn-primary" onclick="window.__doPaste()">Import</button>
+          <button class="btn" onclick="window.__hidePaste()">Cancel</button>
+          <button class="btn btn-primary" onclick="window.__doPaste()">Import</button>
         </div>
       </div>
     </div>
@@ -173,17 +177,19 @@ function hidePaste(): void {
 }
 
 async function doPaste(): Promise<void> {
-  const table = (document.getElementById("paste-table") as HTMLSelectElement)?.value;
+  const existingTable = (document.getElementById("paste-table") as HTMLSelectElement)?.value;
+  const newTable = (document.getElementById("paste-new-table") as HTMLInputElement)?.value?.trim();
+  const table = newTable || existingTable;
   const data = (document.getElementById("paste-data") as HTMLTextAreaElement)?.value?.trim();
-  if (!table || !data) return;
-  
+  if (!table || !data) { alert("Select a table or enter a new table name, and paste data."); return; }
+
   try {
-    // Try JSON first
+    // Parse data — try JSON first, then CSV
     let rows: any[];
     try {
       rows = JSON.parse(data);
+      if (!Array.isArray(rows)) rows = [rows];
     } catch {
-      // Parse as CSV
       const lines = data.split("\n").map(l => l.trim()).filter(Boolean);
       const headers = lines[0].split(",").map(h => h.trim());
       rows = lines.slice(1).map(line => {
@@ -193,15 +199,25 @@ async function doPaste(): Promise<void> {
         return obj;
       });
     }
-    
+
+    if (!rows.length) { alert("No data rows found."); return; }
+
+    // Create table if new name provided
+    if (newTable) {
+      const cols = Object.keys(rows[0]);
+      const colDefs = ["id INTEGER PRIMARY KEY AUTOINCREMENT", ...cols.map(c => `${c} TEXT`)];
+      await api("/query", "POST", { query: `CREATE TABLE IF NOT EXISTS ${newTable} (${colDefs.join(", ")})`, type: "sql" });
+    }
+
     // Insert each row
     for (const row of rows) {
       const cols = Object.keys(row);
       const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`);
       await api("/query", "POST", { query: `INSERT INTO ${table} (${cols.join(",")}) VALUES (${vals.join(",")})`, type: "sql" });
     }
-    
+
     hidePaste();
+    loadTables();
     selectTable(table);
   } catch (e: any) {
     alert("Import error: " + e.message);
