@@ -19,15 +19,15 @@ applyTheme(theme);
 type TabDef = { id: string; label: string; render: (el: HTMLElement) => void };
 
 const tabs: TabDef[] = [
+  { id: "chat", label: "Code With Me", render: renderChat },
   { id: "routes", label: "Routes", render: renderRoutes },
   { id: "database", label: "Database", render: renderDatabase },
   { id: "errors", label: "Errors", render: renderErrors },
   { id: "metrics", label: "Metrics", render: renderMetrics },
   { id: "system", label: "System", render: renderSystem },
-  { id: "chat", label: "Code With Me", render: renderChat },
 ];
 
-let activeTab = "routes";
+let activeTab = "chat";
 
 function renderApp(): void {
   const app = document.getElementById("app");
