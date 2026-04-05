@@ -222,11 +222,14 @@ async function doPaste(): Promise<void> {
       inserted++;
     }
 
+    // Clear form and close
+    (document.getElementById("paste-data") as HTMLTextAreaElement).value = "";
+    (document.getElementById("paste-new-table") as HTMLInputElement).value = "";
+    (document.getElementById("paste-table") as HTMLSelectElement).selectedIndex = 0;
     hidePaste();
     loadTables();
     if (inserted > 0) {
       selectTable(table);
-      alert(`Imported ${inserted} rows into "${table}"`);
     }
   } catch (e: any) {
     alert("Import error: " + e.message);
