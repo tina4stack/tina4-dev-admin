@@ -37,10 +37,12 @@ export function renderDatabase(container: HTMLElement): void {
             <option value="100">100</option>
             <option value="500">500</option>
           </select>
-          <button class="btn btn-sm btn-primary" onclick="window.__runQuery()">Run</button>
-          <button class="btn btn-sm" onclick="window.__copyCSV()">Copy CSV</button>
-          <button class="btn btn-sm" onclick="window.__copyJSON()">Copy JSON</button>
-          <button class="btn btn-sm" onclick="window.__showPaste()">Paste</button>
+          <span class="text-sm text-muted">Offset</span>
+          <input type="number" id="db-offset" class="input" value="0" style="width:60px" min="0">
+          <button class="btn btn-primary" onclick="window.__runQuery()">Run</button>
+          <button class="btn" onclick="window.__copyCSV()">Copy CSV</button>
+          <button class="btn" onclick="window.__copyJSON()">Copy JSON</button>
+          <button class="btn" onclick="window.__showPaste()">Paste</button>
           <span class="text-sm text-muted">Ctrl+Enter</span>
         </div>
         <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>

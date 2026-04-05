@@ -58,16 +58,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .dev-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .dev-panel-header h2 { font-size: 0.95rem; font-weight: 600; }
 
-.btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; transition: all 0.15s; }
+.btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; transition: all 0.15s; height: 30px; line-height: 1; }
 .btn:hover { background: var(--border); }
 .btn-primary { background: var(--primary); border-color: var(--primary); color: white; }
 .btn-primary:hover { opacity: 0.9; }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: white; }
 .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.75rem; }
 
-.input { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--bg); color: var(--text); font-size: 0.8rem; }
+.input { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--bg); color: var(--text); font-size: 0.8rem; height: 30px; }
+select.input { height: 30px; }
 .input:focus { outline: none; border-color: var(--primary); }
-textarea.input { font-family: "SF Mono", "Fira Code", Consolas, monospace; resize: vertical; }
+textarea.input { font-family: "SF Mono", "Fira Code", Consolas, monospace; resize: vertical; height: auto; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 th { text-align: left; padding: 0.5rem; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }

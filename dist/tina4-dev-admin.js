@@ -18,16 +18,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .dev-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .dev-panel-header h2 { font-size: 0.95rem; font-weight: 600; }
 
-.btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; transition: all 0.15s; }
+.btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; transition: all 0.15s; height: 30px; line-height: 1; }
 .btn:hover { background: var(--border); }
 .btn-primary { background: var(--primary); border-color: var(--primary); color: white; }
 .btn-primary:hover { opacity: 0.9; }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: white; }
 .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.75rem; }
 
-.input { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--bg); color: var(--text); font-size: 0.8rem; }
+.input { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--bg); color: var(--text); font-size: 0.8rem; height: 30px; }
+select.input { height: 30px; }
 .input:focus { outline: none; border-color: var(--primary); }
-textarea.input { font-family: "SF Mono", "Fira Code", Consolas, monospace; resize: vertical; }
+textarea.input { font-family: "SF Mono", "Fira Code", Consolas, monospace; resize: vertical; height: auto; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 th { text-align: left; padding: 0.5rem; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
@@ -89,7 +90,7 @@ tr:hover { background: rgba(255,255,255,0.03); }
       <td>${r.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
       <td class="text-sm text-muted">${a(r.handler||"")} <small>(${a(r.module||"")})</small></td>
     </tr>
-  `).join(""))}window.__loadRoutes=_;let u=[],b=[];function D(e){e.innerHTML=`
+  `).join(""))}window.__loadRoutes=_;let u=[],p=[];function D(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Database</h2>
       <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
@@ -122,10 +123,12 @@ tr:hover { background: rgba(255,255,255,0.03); }
             <option value="100">100</option>
             <option value="500">500</option>
           </select>
-          <button class="btn btn-sm btn-primary" onclick="window.__runQuery()">Run</button>
-          <button class="btn btn-sm" onclick="window.__copyCSV()">Copy CSV</button>
-          <button class="btn btn-sm" onclick="window.__copyJSON()">Copy JSON</button>
-          <button class="btn btn-sm" onclick="window.__showPaste()">Paste</button>
+          <span class="text-sm text-muted">Offset</span>
+          <input type="number" id="db-offset" class="input" value="0" style="width:60px" min="0">
+          <button class="btn btn-primary" onclick="window.__runQuery()">Run</button>
+          <button class="btn" onclick="window.__copyCSV()">Copy CSV</button>
+          <button class="btn" onclick="window.__copyJSON()">Copy JSON</button>
+          <button class="btn" onclick="window.__showPaste()">Paste</button>
           <span class="text-sm text-muted">Ctrl+Enter</span>
         </div>
         <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
@@ -146,11 +149,11 @@ Bob,bob@test.com'></textarea>
         </div>
       </div>
     </div>
-  `,k()}async function k(){const o=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=o.length?o.map(i=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${a(i)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${a(i)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const r=document.getElementById("db-seed-table");r&&(r.innerHTML='<option value="">Pick table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""));const n=document.getElementById("paste-table");n&&(n.innerHTML='<option value="">Select table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""))}function y(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const o=document.getElementById("db-query");o&&(o.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(r=>{r.style.background=r.textContent===e?"var(--border)":""}),$()}function U(){var t;const e=document.getElementById("db-query"),o=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${o}`))}async function $(){var n,i,l;const e=document.getElementById("db-query"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;const t=document.getElementById("db-result"),r=((i=document.getElementById("db-type"))==null?void 0:i.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const d=parseInt(((l=document.getElementById("db-limit"))==null?void 0:l.value)||"20"),s=await c("/query","POST",{query:o,type:r,limit:d});if(s.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(s.error)}</p>`);return}s.rows&&s.rows.length>0?(b=Object.keys(s.rows[0]),u=s.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${s.count??s.rows.length} rows</p>
-        <div style="overflow-x:auto"><table><thead><tr>${b.map(m=>`<th>${a(m)}</th>`).join("")}</tr></thead>
-        <tbody>${s.rows.map(m=>`<tr>${b.map(p=>`<td class="text-sm">${a(String(m[p]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):s.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${s.affected} rows affected. ${s.success?"Success.":""}</p>`),u=[],b=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),u=[],b=[])}catch(d){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(d.message)}</p>`)}}function V(){if(!u.length)return;const e=b.join(","),o=u.map(t=>b.map(r=>{const n=String(t[r]??"");return n.includes(",")||n.includes('"')?`"${n.replace(/"/g,'""')}"`:n}).join(","));navigator.clipboard.writeText([e,...o].join(`
+  `,k()}async function k(){const o=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=o.length?o.map(i=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${a(i)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${a(i)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const r=document.getElementById("db-seed-table");r&&(r.innerHTML='<option value="">Pick table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""));const n=document.getElementById("paste-table");n&&(n.innerHTML='<option value="">Select table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""))}function y(e){var t;(t=document.getElementById("db-limit"))!=null&&t.value;const o=document.getElementById("db-query");o&&(o.value=`SELECT * FROM ${e}`),document.querySelectorAll(".db-table-item").forEach(r=>{r.style.background=r.textContent===e?"var(--border)":""}),$()}function U(){var t;const e=document.getElementById("db-query"),o=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${o}`))}async function $(){var n,i,l;const e=document.getElementById("db-query"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;const t=document.getElementById("db-result"),r=((i=document.getElementById("db-type"))==null?void 0:i.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const d=parseInt(((l=document.getElementById("db-limit"))==null?void 0:l.value)||"20"),s=await c("/query","POST",{query:o,type:r,limit:d});if(s.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(s.error)}</p>`);return}s.rows&&s.rows.length>0?(p=Object.keys(s.rows[0]),u=s.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${s.count??s.rows.length} rows</p>
+        <div style="overflow-x:auto"><table><thead><tr>${p.map(m=>`<th>${a(m)}</th>`).join("")}</tr></thead>
+        <tbody>${s.rows.map(m=>`<tr>${p.map(b=>`<td class="text-sm">${a(String(m[b]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):s.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${s.affected} rows affected. ${s.success?"Success.":""}</p>`),u=[],p=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),u=[],p=[])}catch(d){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(d.message)}</p>`)}}function V(){if(!u.length)return;const e=p.join(","),o=u.map(t=>p.map(r=>{const n=String(t[r]??"");return n.includes(",")||n.includes('"')?`"${n.replace(/"/g,'""')}"`:n}).join(","));navigator.clipboard.writeText([e,...o].join(`
 `))}function J(){u.length&&navigator.clipboard.writeText(JSON.stringify(u,null,2))}function K(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function T(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function Q(){var t,r,n;const e=(t=document.getElementById("paste-table"))==null?void 0:t.value,o=(n=(r=document.getElementById("paste-data"))==null?void 0:r.value)==null?void 0:n.trim();if(!(!e||!o))try{let i;try{i=JSON.parse(o)}catch{const l=o.split(`
-`).map(s=>s.trim()).filter(Boolean),d=l[0].split(",").map(s=>s.trim());i=l.slice(1).map(s=>{const m=s.split(",").map(g=>g.trim()),p={};return d.forEach((g,w)=>{p[g]=m[w]??""}),p})}for(const l of i){const d=Object.keys(l),s=d.map(m=>`'${String(l[m]).replace(/'/g,"''")}'`);await c("/query","POST",{query:`INSERT INTO ${e} (${d.join(",")}) VALUES (${s.join(",")})`,type:"sql"})}T(),y(e)}catch(i){alert("Import error: "+i.message)}}async function W(){var t,r;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,o=parseInt(((r=document.getElementById("db-seed-count"))==null?void 0:r.value)||"10");if(e)try{const n=await c("/seed","POST",{table:e,count:o});n.error?alert(n.error):y(e)}catch(n){alert("Seed error: "+n.message)}}window.__loadTables=k,window.__selectTable=y,window.__updateLimit=U,window.__runQuery=$,window.__copyCSV=V,window.__copyJSON=J,window.__showPaste=K,window.__hidePaste=T,window.__doPaste=Q,window.__seedTable=W;function G(e){e.innerHTML=`
+`).map(s=>s.trim()).filter(Boolean),d=l[0].split(",").map(s=>s.trim());i=l.slice(1).map(s=>{const m=s.split(",").map(g=>g.trim()),b={};return d.forEach((g,w)=>{b[g]=m[w]??""}),b})}for(const l of i){const d=Object.keys(l),s=d.map(m=>`'${String(l[m]).replace(/'/g,"''")}'`);await c("/query","POST",{query:`INSERT INTO ${e} (${d.join(",")}) VALUES (${s.join(",")})`,type:"sql"})}T(),y(e)}catch(i){alert("Import error: "+i.message)}}async function W(){var t,r;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,o=parseInt(((r=document.getElementById("db-seed-count"))==null?void 0:r.value)||"10");if(e)try{const n=await c("/seed","POST",{table:e,count:o});n.error?alert(n.error):y(e)}catch(n){alert("Seed error: "+n.message)}}window.__loadTables=k,window.__selectTable=y,window.__updateLimit=U,window.__runQuery=$,window.__copyCSV=V,window.__copyJSON=J,window.__showPaste=K,window.__hidePaste=T,window.__doPaste=Q,window.__seedTable=W;function G(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Errors <span id="errors-count" class="text-muted text-sm"></span></h2>
       <div class="flex gap-sm">
@@ -218,7 +221,7 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=
           <tr><td class="text-mono">${a(n.name)}</td><td class="text-sm text-muted">${a(n.file)}</td>
           <td>${n.complexity}</td><td>${n.loc}</td></tr>`).join("")}</tbody></table>
       `:""}
-    `)}function re(e,o){const t=o.clientWidth||800,r=400,n=Math.max(...e.map(m=>m.loc||1));let i=`<svg width="${t}" height="${r}" style="background:var(--surface)">`;const l=Math.ceil(Math.sqrt(e.length)),d=t/l,s=r/Math.ceil(e.length/l);e.forEach((m,p)=>{var O;const g=p%l,w=Math.floor(p/l),H=g*d+d/2,P=w*s+s/2,z=Math.max(8,Math.sqrt(m.loc/n)*Math.min(d,s)*.4),ue=m.maintainability??50,j=`hsl(${Math.min(120,Math.max(0,ue*1.2))}, 70%, 50%)`;i+=`<circle cx="${H}" cy="${P}" r="${z}" fill="${j}" fill-opacity="0.7" stroke="${j}" stroke-width="1"
+    `)}function re(e,o){const t=o.clientWidth||800,r=400,n=Math.max(...e.map(m=>m.loc||1));let i=`<svg width="${t}" height="${r}" style="background:var(--surface)">`;const l=Math.ceil(Math.sqrt(e.length)),d=t/l,s=r/Math.ceil(e.length/l);e.forEach((m,b)=>{var O;const g=b%l,w=Math.floor(b/l),H=g*d+d/2,P=w*s+s/2,z=Math.max(8,Math.sqrt(m.loc/n)*Math.min(d,s)*.4),ue=m.maintainability??50,j=`hsl(${Math.min(120,Math.max(0,ue*1.2))}, 70%, 50%)`;i+=`<circle cx="${H}" cy="${P}" r="${z}" fill="${j}" fill-opacity="0.7" stroke="${j}" stroke-width="1"
       style="cursor:pointer" onclick="window.__drillDown('${a(m.path)}')" />`,i+=`<text x="${H}" y="${P+z+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${a(((O=m.path)==null?void 0:O.split("/").pop())||"")}</text>`}),i+="</svg>",o.innerHTML=i}async function ne(e){const o=document.getElementById("metrics-detail");if(!o)return;o.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await c("/metrics/file?path="+encodeURIComponent(e));if(t.error){o.innerHTML=`<p style="color:var(--danger)">${a(t.error)}</p>`;return}o.innerHTML=`
     <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${a(t.path)}</h3>
     <div class="metric-grid">
