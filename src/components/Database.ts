@@ -1,44 +1,114 @@
 import { api, esc } from "../api.js";
 
+let lastResults: any[] = [];
+let lastColumns: string[] = [];
+
 export function renderDatabase(container: HTMLElement): void {
   container.innerHTML = `
     <div class="dev-panel-header">
       <h2>Database</h2>
-      <div class="flex gap-sm">
-        <select id="db-tables" class="input" style="width:200px" onchange="window.__loadTableInfo()">
-          <option value="">Select table...</option>
-        </select>
-        <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
+      <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
+    </div>
+    <div style="display:flex;gap:1rem;height:calc(100vh - 140px)">
+      <div style="width:200px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);padding-right:0.75rem">
+        <div style="font-weight:600;font-size:0.75rem;color:var(--muted);text-transform:uppercase;margin-bottom:0.5rem">Tables</div>
+        <div id="db-table-list"></div>
+        <div style="margin-top:1.5rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div style="font-weight:600;font-size:0.75rem;color:var(--muted);text-transform:uppercase;margin-bottom:0.5rem">Seed Data</div>
+          <select id="db-seed-table" class="input" style="width:100%;margin-bottom:0.5rem">
+            <option value="">Pick table...</option>
+          </select>
+          <div class="flex gap-sm">
+            <input type="number" id="db-seed-count" class="input" value="10" style="width:60px">
+            <button class="btn btn-sm btn-primary" onclick="window.__seedTable()">Seed</button>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="flex gap-sm items-center" style="margin-bottom:0.5rem;flex-wrap:wrap">
+          <select id="db-type" class="input" style="width:80px">
+            <option value="sql">SQL</option>
+            <option value="graphql">GraphQL</option>
+          </select>
+          <span class="text-sm text-muted">Limit</span>
+          <select id="db-limit" class="input" style="width:60px" onchange="window.__updateLimit()">
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="500">500</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="window.__runQuery()">Run</button>
+          <button class="btn btn-sm" onclick="window.__copyCSV()">Copy CSV</button>
+          <button class="btn btn-sm" onclick="window.__copyJSON()">Copy JSON</button>
+          <button class="btn btn-sm" onclick="window.__showPaste()">Paste</button>
+          <span class="text-sm text-muted">Ctrl+Enter</span>
+        </div>
+        <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users LIMIT 20" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
+        <div id="db-result" style="flex:1;overflow:auto;margin-top:0.75rem"></div>
       </div>
     </div>
-    <div style="margin-bottom:0.75rem">
-      <textarea id="db-query" class="input" style="width:100%;height:80px" placeholder="SELECT * FROM ..." onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
-      <div class="flex gap-sm" style="margin-top:0.5rem">
-        <button class="btn btn-primary btn-sm" onclick="window.__runQuery()">Run (Ctrl+Enter)</button>
+    <div id="db-paste-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.5rem;width:600px;max-height:80vh;overflow:auto">
+        <h3 style="margin-bottom:0.75rem;font-size:0.9rem">Paste Data</h3>
+        <p class="text-sm text-muted" style="margin-bottom:0.5rem">Paste CSV or JSON array. First row = column headers for CSV.</p>
+        <select id="paste-table" class="input" style="width:100%;margin-bottom:0.5rem"><option value="">Select table...</option></select>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email\nAlice,alice@test.com\nBob,bob@test.com'></textarea>
+        <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="window.__hidePaste()">Cancel</button>
+          <button class="btn btn-sm btn-primary" onclick="window.__doPaste()">Import</button>
+        </div>
       </div>
     </div>
-    <div id="db-result"></div>
   `;
   loadTables();
 }
 
 async function loadTables(): Promise<void> {
   const d = await api<any>("/tables");
-  const select = document.getElementById("db-tables") as HTMLSelectElement;
-  if (!select) return;
-  select.innerHTML = '<option value="">Select table...</option>' +
-    (d.tables || []).map((t: string) => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  const tables = d.tables || [];
+  
+  // Sidebar list
+  const list = document.getElementById("db-table-list");
+  if (list) {
+    list.innerHTML = tables.length
+      ? tables.map((t: string) => `<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${esc(t)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${esc(t)}</div>`).join("")
+      : '<div class="text-sm text-muted">No tables</div>';
+  }
+  
+  // Seed dropdown
+  const seed = document.getElementById("db-seed-table") as HTMLSelectElement;
+  if (seed) {
+    seed.innerHTML = '<option value="">Pick table...</option>' +
+      tables.map((t: string) => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  }
+  
+  // Paste dropdown
+  const paste = document.getElementById("paste-table") as HTMLSelectElement;
+  if (paste) {
+    paste.innerHTML = '<option value="">Select table...</option>' +
+      tables.map((t: string) => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  }
 }
 
-async function loadTableInfo(): Promise<void> {
-  const select = document.getElementById("db-tables") as HTMLSelectElement;
-  if (!select?.value) return;
-  const d = await api<any>("/table?name=" + encodeURIComponent(select.value));
-  const result = document.getElementById("db-result");
-  if (!result) return;
-  result.innerHTML = `<table><thead><tr><th>Column</th><th>Type</th><th>Nullable</th></tr></thead><tbody>` +
-    (d.columns || []).map((c: any) => `<tr><td class="text-mono">${esc(c.name)}</td><td class="text-sm">${esc(c.type)}</td><td>${c.nullable ? "yes" : "no"}</td></tr>`).join("") +
-    `</tbody></table>`;
+function selectTable(name: string): void {
+  const limit = (document.getElementById("db-limit") as HTMLSelectElement)?.value || "20";
+  const textarea = document.getElementById("db-query") as HTMLTextAreaElement;
+  if (textarea) textarea.value = `SELECT * FROM ${name} LIMIT ${limit}`;
+  
+  // Highlight selected
+  document.querySelectorAll(".db-table-item").forEach(el => {
+    (el as HTMLElement).style.background = el.textContent === name ? "var(--border)" : "";
+  });
+  
+  runQuery();
+}
+
+function updateLimit(): void {
+  const textarea = document.getElementById("db-query") as HTMLTextAreaElement;
+  const limit = (document.getElementById("db-limit") as HTMLSelectElement)?.value || "20";
+  if (textarea?.value) {
+    textarea.value = textarea.value.replace(/LIMIT\s+\d+/i, `LIMIT ${limit}`);
+  }
 }
 
 async function runQuery(): Promise<void> {
@@ -46,26 +116,119 @@ async function runQuery(): Promise<void> {
   const sql = textarea?.value?.trim();
   if (!sql) return;
   const result = document.getElementById("db-result");
+  const queryType = (document.getElementById("db-type") as HTMLSelectElement)?.value || "sql";
   if (result) result.innerHTML = '<p class="text-muted">Running...</p>';
   try {
-    const d = await api<any>("/query", "POST", { query: sql, type: "sql" });
+    const d = await api<any>("/query", "POST", { query: sql, type: queryType });
     if (d.error) {
       if (result) result.innerHTML = `<p style="color:var(--danger)">${esc(d.error)}</p>`;
       return;
     }
     if (d.rows && d.rows.length > 0) {
-      const keys = Object.keys(d.rows[0]);
-      if (result) result.innerHTML = `<p class="text-sm text-muted">${d.count ?? d.rows.length} rows</p>
-        <table><thead><tr>${keys.map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead>
-        <tbody>${d.rows.map((r: any) => `<tr>${keys.map(k => `<td class="text-sm">${esc(String(r[k] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      lastColumns = Object.keys(d.rows[0]);
+      lastResults = d.rows;
+      if (result) result.innerHTML = `<p class="text-sm text-muted" style="margin-bottom:0.5rem">${d.count ?? d.rows.length} rows</p>
+        <div style="overflow-x:auto"><table><thead><tr>${lastColumns.map(k => `<th>${esc(k)}</th>`).join("")}</tr></thead>
+        <tbody>${d.rows.map((r: any) => `<tr>${lastColumns.map(k => `<td class="text-sm">${esc(String(r[k] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    } else if (d.affected !== undefined) {
+      if (result) result.innerHTML = `<p class="text-muted">${d.affected} rows affected. ${d.success ? "Success." : ""}</p>`;
+      lastResults = [];
+      lastColumns = [];
     } else {
-      if (result) result.innerHTML = `<p class="text-muted">${d.affected !== undefined ? d.affected + " rows affected" : "Done"}</p>`;
+      if (result) result.innerHTML = '<p class="text-muted">No results</p>';
+      lastResults = [];
+      lastColumns = [];
     }
   } catch (e: any) {
     if (result) result.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`;
   }
 }
 
+function copyCSV(): void {
+  if (!lastResults.length) return;
+  const header = lastColumns.join(",");
+  const rows = lastResults.map(r => lastColumns.map(k => {
+    const v = String(r[k] ?? "");
+    return v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
+  }).join(","));
+  navigator.clipboard.writeText([header, ...rows].join("\n"));
+}
+
+function copyJSON(): void {
+  if (!lastResults.length) return;
+  navigator.clipboard.writeText(JSON.stringify(lastResults, null, 2));
+}
+
+function showPaste(): void {
+  const modal = document.getElementById("db-paste-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+function hidePaste(): void {
+  const modal = document.getElementById("db-paste-modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function doPaste(): Promise<void> {
+  const table = (document.getElementById("paste-table") as HTMLSelectElement)?.value;
+  const data = (document.getElementById("paste-data") as HTMLTextAreaElement)?.value?.trim();
+  if (!table || !data) return;
+  
+  try {
+    // Try JSON first
+    let rows: any[];
+    try {
+      rows = JSON.parse(data);
+    } catch {
+      // Parse as CSV
+      const lines = data.split("\n").map(l => l.trim()).filter(Boolean);
+      const headers = lines[0].split(",").map(h => h.trim());
+      rows = lines.slice(1).map(line => {
+        const vals = line.split(",").map(v => v.trim());
+        const obj: any = {};
+        headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+        return obj;
+      });
+    }
+    
+    // Insert each row
+    for (const row of rows) {
+      const cols = Object.keys(row);
+      const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`);
+      await api("/query", "POST", { query: `INSERT INTO ${table} (${cols.join(",")}) VALUES (${vals.join(",")})`, type: "sql" });
+    }
+    
+    hidePaste();
+    selectTable(table);
+  } catch (e: any) {
+    alert("Import error: " + e.message);
+  }
+}
+
+async function seedTable(): Promise<void> {
+  const table = (document.getElementById("db-seed-table") as HTMLSelectElement)?.value;
+  const count = parseInt((document.getElementById("db-seed-count") as HTMLInputElement)?.value || "10");
+  if (!table) return;
+  
+  try {
+    const d = await api<any>("/seed", "POST", { table, count });
+    if (d.error) {
+      alert(d.error);
+    } else {
+      selectTable(table);
+    }
+  } catch (e: any) {
+    alert("Seed error: " + e.message);
+  }
+}
+
 (window as any).__loadTables = loadTables;
-(window as any).__loadTableInfo = loadTableInfo;
+(window as any).__selectTable = selectTable;
+(window as any).__updateLimit = updateLimit;
 (window as any).__runQuery = runQuery;
+(window as any).__copyCSV = copyCSV;
+(window as any).__copyJSON = copyJSON;
+(window as any).__showPaste = showPaste;
+(window as any).__hidePaste = hidePaste;
+(window as any).__doPaste = doPaste;
+(window as any).__seedTable = seedTable;

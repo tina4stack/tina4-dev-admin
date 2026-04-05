@@ -1,4 +1,4 @@
-(function(){"use strict";const p={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function H(){const e=document.getElementById("app"),r=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,a=p[r]??p.python;return{framework:r,color:t??a.color,name:a.name}}function I(e){const r=document.documentElement;r.style.setProperty("--primary",e.color),r.style.setProperty("--bg","#0f172a"),r.style.setProperty("--surface","#1e293b"),r.style.setProperty("--border","#334155"),r.style.setProperty("--text","#e2e8f0"),r.style.setProperty("--muted","#94a3b8"),r.style.setProperty("--success","#22c55e"),r.style.setProperty("--danger","#ef4444"),r.style.setProperty("--warn","#f59e0b"),r.style.setProperty("--info","#3b82f6")}const B=`
+(function(){"use strict";const x={python:{color:"#3b82f6",name:"Python"},php:{color:"#8b5cf6",name:"PHP"},ruby:{color:"#ef4444",name:"Ruby"},nodejs:{color:"#22c55e",name:"Node.js"}};function A(){const e=document.getElementById("app"),o=(e==null?void 0:e.dataset.framework)??"python",t=e==null?void 0:e.dataset.color,r=x[o]??x.python;return{framework:o,color:t??r.color,name:r.name}}function F(e){const o=document.documentElement;o.style.setProperty("--primary",e.color),o.style.setProperty("--bg","#0f172a"),o.style.setProperty("--surface","#1e293b"),o.style.setProperty("--border","#334155"),o.style.setProperty("--text","#e2e8f0"),o.style.setProperty("--muted","#94a3b8"),o.style.setProperty("--success","#22c55e"),o.style.setProperty("--danger","#ef4444"),o.style.setProperty("--warn","#f59e0b"),o.style.setProperty("--info","#3b82f6")}const R=`
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
 
@@ -73,7 +73,7 @@ tr:hover { background: rgba(255,255,255,0.03); }
 .error-trace { background: var(--bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.5rem; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 0.5rem; }
 
 .bubble-chart { width: 100%; height: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
-`,z="/__dev/api";async function i(e,r="GET",t){const a={method:r,headers:{}};return t&&(a.headers["Content-Type"]="application/json",a.body=JSON.stringify(t)),(await fetch(z+e,a)).json()}function o(e){const r=document.createElement("span");return r.textContent=e,r.innerHTML}function A(e){e.innerHTML=`
+`,q="/__dev/api";async function c(e,o="GET",t){const r={method:o,headers:{}};return t&&(r.headers["Content-Type"]="application/json",r.body=JSON.stringify(t)),(await fetch(q+e,r)).json()}function a(e){const o=document.createElement("span");return o.textContent=e,o.innerHTML}function N(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Routes <span id="routes-count" class="text-muted text-sm"></span></h2>
       <button class="btn btn-sm" onclick="window.__loadRoutes()">Refresh</button>
@@ -82,33 +82,75 @@ tr:hover { background: rgba(255,255,255,0.03); }
       <thead><tr><th>Method</th><th>Path</th><th>Auth</th><th>Handler</th></tr></thead>
       <tbody id="routes-body"></tbody>
     </table>
-  `,h()}async function h(){const e=await i("/routes"),r=document.getElementById("routes-count");r&&(r.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(a=>`
+  `,_()}async function _(){const e=await c("/routes"),o=document.getElementById("routes-count");o&&(o.textContent=`(${e.count})`);const t=document.getElementById("routes-body");t&&(t.innerHTML=(e.routes||[]).map(r=>`
     <tr>
-      <td><span class="method method-${a.method.toLowerCase()}">${o(a.method)}</span></td>
-      <td class="text-mono"><a href="${o(a.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${o(a.path)}</a></td>
-      <td>${a.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
-      <td class="text-sm text-muted">${o(a.handler||"")} <small>(${o(a.module||"")})</small></td>
+      <td><span class="method method-${r.method.toLowerCase()}">${a(r.method)}</span></td>
+      <td class="text-mono"><a href="${a(r.path)}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a(r.path)}</a></td>
+      <td>${r.auth_required?'<span class="badge badge-warn">auth</span>':'<span class="badge badge-success">open</span>'}</td>
+      <td class="text-sm text-muted">${a(r.handler||"")} <small>(${a(r.module||"")})</small></td>
     </tr>
-  `).join(""))}window.__loadRoutes=h;function F(e){e.innerHTML=`
+  `).join(""))}window.__loadRoutes=_;let u=[],b=[];function D(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Database</h2>
-      <div class="flex gap-sm">
-        <select id="db-tables" class="input" style="width:200px" onchange="window.__loadTableInfo()">
-          <option value="">Select table...</option>
-        </select>
-        <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
+      <button class="btn btn-sm" onclick="window.__loadTables()">Refresh</button>
+    </div>
+    <div style="display:flex;gap:1rem;height:calc(100vh - 140px)">
+      <div style="width:200px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);padding-right:0.75rem">
+        <div style="font-weight:600;font-size:0.75rem;color:var(--muted);text-transform:uppercase;margin-bottom:0.5rem">Tables</div>
+        <div id="db-table-list"></div>
+        <div style="margin-top:1.5rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div style="font-weight:600;font-size:0.75rem;color:var(--muted);text-transform:uppercase;margin-bottom:0.5rem">Seed Data</div>
+          <select id="db-seed-table" class="input" style="width:100%;margin-bottom:0.5rem">
+            <option value="">Pick table...</option>
+          </select>
+          <div class="flex gap-sm">
+            <input type="number" id="db-seed-count" class="input" value="10" style="width:60px">
+            <button class="btn btn-sm btn-primary" onclick="window.__seedTable()">Seed</button>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+        <div class="flex gap-sm items-center" style="margin-bottom:0.5rem;flex-wrap:wrap">
+          <select id="db-type" class="input" style="width:80px">
+            <option value="sql">SQL</option>
+            <option value="graphql">GraphQL</option>
+          </select>
+          <span class="text-sm text-muted">Limit</span>
+          <select id="db-limit" class="input" style="width:60px" onchange="window.__updateLimit()">
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="500">500</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="window.__runQuery()">Run</button>
+          <button class="btn btn-sm" onclick="window.__copyCSV()">Copy CSV</button>
+          <button class="btn btn-sm" onclick="window.__copyJSON()">Copy JSON</button>
+          <button class="btn btn-sm" onclick="window.__showPaste()">Paste</button>
+          <span class="text-sm text-muted">Ctrl+Enter</span>
+        </div>
+        <textarea id="db-query" class="input text-mono" style="width:100%;height:80px;resize:vertical" placeholder="SELECT * FROM users LIMIT 20" onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
+        <div id="db-result" style="flex:1;overflow:auto;margin-top:0.75rem"></div>
       </div>
     </div>
-    <div style="margin-bottom:0.75rem">
-      <textarea id="db-query" class="input" style="width:100%;height:80px" placeholder="SELECT * FROM ..." onkeydown="if(event.ctrlKey&&event.key==='Enter')window.__runQuery()"></textarea>
-      <div class="flex gap-sm" style="margin-top:0.5rem">
-        <button class="btn btn-primary btn-sm" onclick="window.__runQuery()">Run (Ctrl+Enter)</button>
+    <div id="db-paste-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;display:none;align-items:center;justify-content:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:1.5rem;width:600px;max-height:80vh;overflow:auto">
+        <h3 style="margin-bottom:0.75rem;font-size:0.9rem">Paste Data</h3>
+        <p class="text-sm text-muted" style="margin-bottom:0.5rem">Paste CSV or JSON array. First row = column headers for CSV.</p>
+        <select id="paste-table" class="input" style="width:100%;margin-bottom:0.5rem"><option value="">Select table...</option></select>
+        <textarea id="paste-data" class="input text-mono" style="width:100%;height:200px" placeholder='name,email
+Alice,alice@test.com
+Bob,bob@test.com'></textarea>
+        <div class="flex gap-sm" style="margin-top:0.75rem;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="window.__hidePaste()">Cancel</button>
+          <button class="btn btn-sm btn-primary" onclick="window.__doPaste()">Import</button>
+        </div>
       </div>
     </div>
-    <div id="db-result"></div>
-  `,g()}async function g(){const e=await i("/tables"),r=document.getElementById("db-tables");r&&(r.innerHTML='<option value="">Select table...</option>'+(e.tables||[]).map(t=>`<option value="${o(t)}">${o(t)}</option>`).join(""))}async function P(){const e=document.getElementById("db-tables");if(!(e!=null&&e.value))return;const r=await i("/table?name="+encodeURIComponent(e.value)),t=document.getElementById("db-result");t&&(t.innerHTML="<table><thead><tr><th>Column</th><th>Type</th><th>Nullable</th></tr></thead><tbody>"+(r.columns||[]).map(a=>`<tr><td class="text-mono">${o(a.name)}</td><td class="text-sm">${o(a.type)}</td><td>${a.nullable?"yes":"no"}</td></tr>`).join("")+"</tbody></table>")}async function j(){var a;const e=document.getElementById("db-query"),r=(a=e==null?void 0:e.value)==null?void 0:a.trim();if(!r)return;const t=document.getElementById("db-result");t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const n=await i("/query","POST",{query:r,type:"sql"});if(n.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${o(n.error)}</p>`);return}if(n.rows&&n.rows.length>0){const s=Object.keys(n.rows[0]);t&&(t.innerHTML=`<p class="text-sm text-muted">${n.count??n.rows.length} rows</p>
-        <table><thead><tr>${s.map(d=>`<th>${o(d)}</th>`).join("")}</tr></thead>
-        <tbody>${n.rows.map(d=>`<tr>${s.map(l=>`<td class="text-sm">${o(String(d[l]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table>`)}else t&&(t.innerHTML=`<p class="text-muted">${n.affected!==void 0?n.affected+" rows affected":"Done"}</p>`)}catch(n){t&&(t.innerHTML=`<p style="color:var(--danger)">${o(n.message)}</p>`)}}window.__loadTables=g,window.__loadTableInfo=P,window.__runQuery=j;function R(e){e.innerHTML=`
+  `,$()}async function $(){const o=(await c("/tables")).tables||[],t=document.getElementById("db-table-list");t&&(t.innerHTML=o.length?o.map(i=>`<div style="padding:0.3rem 0.5rem;cursor:pointer;border-radius:0.25rem;font-size:0.8rem;font-family:monospace" class="db-table-item" onclick="window.__selectTable('${a(i)}')" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background=''">${a(i)}</div>`).join(""):'<div class="text-sm text-muted">No tables</div>');const r=document.getElementById("db-seed-table");r&&(r.innerHTML='<option value="">Pick table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""));const n=document.getElementById("paste-table");n&&(n.innerHTML='<option value="">Select table...</option>'+o.map(i=>`<option value="${a(i)}">${a(i)}</option>`).join(""))}function y(e){var r;const o=((r=document.getElementById("db-limit"))==null?void 0:r.value)||"20",t=document.getElementById("db-query");t&&(t.value=`SELECT * FROM ${e} LIMIT ${o}`),document.querySelectorAll(".db-table-item").forEach(n=>{n.style.background=n.textContent===e?"var(--border)":""}),k()}function U(){var t;const e=document.getElementById("db-query"),o=((t=document.getElementById("db-limit"))==null?void 0:t.value)||"20";e!=null&&e.value&&(e.value=e.value.replace(/LIMIT\s+\d+/i,`LIMIT ${o}`))}async function k(){var n,i;const e=document.getElementById("db-query"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;const t=document.getElementById("db-result"),r=((i=document.getElementById("db-type"))==null?void 0:i.value)||"sql";t&&(t.innerHTML='<p class="text-muted">Running...</p>');try{const s=await c("/query","POST",{query:o,type:r});if(s.error){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(s.error)}</p>`);return}s.rows&&s.rows.length>0?(b=Object.keys(s.rows[0]),u=s.rows,t&&(t.innerHTML=`<p class="text-sm text-muted" style="margin-bottom:0.5rem">${s.count??s.rows.length} rows</p>
+        <div style="overflow-x:auto"><table><thead><tr>${b.map(d=>`<th>${a(d)}</th>`).join("")}</tr></thead>
+        <tbody>${s.rows.map(d=>`<tr>${b.map(l=>`<td class="text-sm">${a(String(d[l]??""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)):s.affected!==void 0?(t&&(t.innerHTML=`<p class="text-muted">${s.affected} rows affected. ${s.success?"Success.":""}</p>`),u=[],b=[]):(t&&(t.innerHTML='<p class="text-muted">No results</p>'),u=[],b=[])}catch(s){t&&(t.innerHTML=`<p style="color:var(--danger)">${a(s.message)}</p>`)}}function V(){if(!u.length)return;const e=b.join(","),o=u.map(t=>b.map(r=>{const n=String(t[r]??"");return n.includes(",")||n.includes('"')?`"${n.replace(/"/g,'""')}"`:n}).join(","));navigator.clipboard.writeText([e,...o].join(`
+`))}function J(){u.length&&navigator.clipboard.writeText(JSON.stringify(u,null,2))}function K(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="flex")}function T(){const e=document.getElementById("db-paste-modal");e&&(e.style.display="none")}async function Q(){var t,r,n;const e=(t=document.getElementById("paste-table"))==null?void 0:t.value,o=(n=(r=document.getElementById("paste-data"))==null?void 0:r.value)==null?void 0:n.trim();if(!(!e||!o))try{let i;try{i=JSON.parse(o)}catch{const s=o.split(`
+`).map(l=>l.trim()).filter(Boolean),d=s[0].split(",").map(l=>l.trim());i=s.slice(1).map(l=>{const m=l.split(",").map(g=>g.trim()),v={};return d.forEach((g,w)=>{v[g]=m[w]??""}),v})}for(const s of i){const d=Object.keys(s),l=d.map(m=>`'${String(s[m]).replace(/'/g,"''")}'`);await c("/query","POST",{query:`INSERT INTO ${e} (${d.join(",")}) VALUES (${l.join(",")})`,type:"sql"})}T(),y(e)}catch(i){alert("Import error: "+i.message)}}async function W(){var t,r;const e=(t=document.getElementById("db-seed-table"))==null?void 0:t.value,o=parseInt(((r=document.getElementById("db-seed-count"))==null?void 0:r.value)||"10");if(e)try{const n=await c("/seed","POST",{table:e,count:o});n.error?alert(n.error):y(e)}catch(n){alert("Seed error: "+n.message)}}window.__loadTables=$,window.__selectTable=y,window.__updateLimit=U,window.__runQuery=k,window.__copyCSV=V,window.__copyJSON=J,window.__showPaste=K,window.__hidePaste=T,window.__doPaste=Q,window.__seedTable=W;function G(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Errors <span id="errors-count" class="text-muted text-sm"></span></h2>
       <div class="flex gap-sm">
@@ -117,35 +159,35 @@ tr:hover { background: rgba(255,255,255,0.03); }
       </div>
     </div>
     <div id="errors-body"></div>
-  `,b()}async function b(){const e=await i("/broken"),r=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const a=e.errors||[];if(r&&(r.textContent=`(${a.length})`),!a.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=a.map((n,s)=>`
+  `,h()}async function h(){const e=await c("/broken"),o=document.getElementById("errors-count"),t=document.getElementById("errors-body");if(!t)return;const r=e.errors||[];if(o&&(o.textContent=`(${r.length})`),!r.length){t.innerHTML='<div class="empty-state">No errors</div>';return}t.innerHTML=r.map((n,i)=>`
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem;margin-bottom:0.75rem">
       <div class="flex items-center" style="justify-content:space-between">
         <div>
           <span class="badge badge-danger">UNRESOLVED</span>
-          <strong style="margin-left:0.5rem;font-size:0.85rem">${o(n.error||n.message||"Unknown error")}</strong>
+          <strong style="margin-left:0.5rem;font-size:0.85rem">${a(n.error||n.message||"Unknown error")}</strong>
         </div>
         <div class="flex gap-sm">
-          <button class="btn btn-sm" onclick="window.__resolveError('${o(n.id||String(s))}')">Resolve</button>
-          <button class="btn btn-sm btn-primary" onclick="window.__askAboutError(${s})">Ask Tina4</button>
+          <button class="btn btn-sm" onclick="window.__resolveError('${a(n.id||String(i))}')">Resolve</button>
+          <button class="btn btn-sm btn-primary" onclick="window.__askAboutError(${i})">Ask Tina4</button>
         </div>
       </div>
-      ${n.traceback?`<div class="error-trace">${o(n.traceback)}</div>`:""}
-      <div class="text-sm text-muted" style="margin-top:0.5rem">${o(n.timestamp||"")}</div>
+      ${n.traceback?`<div class="error-trace">${a(n.traceback)}</div>`:""}
+      <div class="text-sm text-muted" style="margin-top:0.5rem">${a(n.timestamp||"")}</div>
     </div>
-  `).join(""),window.__errorData=a}async function O(e){await i("/broken/resolve","POST",{id:e}),b()}async function q(){await i("/broken/clear","POST"),b()}function D(e){const t=(window.__errorData||[])[e];if(!t)return;const a=document.querySelector('[data-tab="chat"]');a&&a.click(),setTimeout(()=>{const n=document.getElementById("chat-input");n&&(n.value=`I have this error: ${t.error||t.message}
+  `).join(""),window.__errorData=r}async function X(e){await c("/broken/resolve","POST",{id:e}),h()}async function Y(){await c("/broken/clear","POST"),h()}function Z(e){const t=(window.__errorData||[])[e];if(!t)return;const r=document.querySelector('[data-tab="chat"]');r&&r.click(),setTimeout(()=>{const n=document.getElementById("chat-input");n&&(n.value=`I have this error: ${t.error||t.message}
 
-${t.traceback||""}`,n.focus())},100)}window.__loadErrors=b,window.__clearErrors=q,window.__resolveError=O,window.__askAboutError=D;function N(e){e.innerHTML=`
+${t.traceback||""}`,n.focus())},100)}window.__loadErrors=h,window.__clearErrors=Y,window.__resolveError=X,window.__askAboutError=Z;function ee(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>System</h2>
       <button class="btn btn-sm" onclick="window.__loadSystem()">Refresh</button>
     </div>
     <div id="system-grid" class="metric-grid"></div>
-  `,y()}async function y(){const e=await i("/system"),r=document.getElementById("system-grid");if(!r)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];r.innerHTML=t.map(a=>`
+  `,E()}async function E(){const e=await c("/system"),o=document.getElementById("system-grid");if(!o)return;const t=[{label:"Framework",value:e.framework||"Tina4"},{label:"Version",value:e.version||"?"},{label:"Runtime",value:e.runtime||e.python_version||e.php_version||e.ruby_version||e.node_version||"?"},{label:"Database",value:e.database||e.db_type||"none"},{label:"Uptime",value:e.uptime||"?"},{label:"Memory",value:e.memory||"?"},{label:"Platform",value:e.platform||"?"},{label:"Routes",value:String(e.route_count??e.routes??"?")},{label:"Debug",value:e.debug?"ON":"OFF"}];o.innerHTML=t.map(r=>`
     <div class="metric-card">
-      <div class="label">${o(a.label)}</div>
-      <div class="value" style="font-size:1.1rem">${o(a.value)}</div>
+      <div class="label">${a(r.label)}</div>
+      <div class="value" style="font-size:1.1rem">${a(r.value)}</div>
     </div>
-  `).join("")}window.__loadSystem=y;function U(e){e.innerHTML=`
+  `).join("")}window.__loadSystem=E;function te(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code Metrics</h2>
       <div class="flex gap-sm">
@@ -156,29 +198,29 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=b,window.__clearErrors=
     <div id="metrics-quick" class="metric-grid"></div>
     <div id="metrics-chart" class="bubble-chart" style="display:none"></div>
     <div id="metrics-detail" style="margin-top:1rem"></div>
-  `,f()}async function f(){const e=await i("/metrics"),r=document.getElementById("metrics-quick");if(!r||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];r.innerHTML=t.map(a=>`
+  `,M()}async function M(){const e=await c("/metrics"),o=document.getElementById("metrics-quick");if(!o||e.error)return;const t=[{label:"Files",value:String(e.file_count??0)},{label:"Lines of Code",value:String(e.total_loc??0)},{label:"Classes",value:String(e.classes??0)},{label:"Functions",value:String(e.functions??0)},{label:"Routes",value:String(e.route_count??0)},{label:"Templates",value:String(e.template_count??0)},{label:"Migrations",value:String(e.migration_count??0)},{label:"Avg File Size",value:String(e.avg_file_size??0)+" LOC"}];o.innerHTML=t.map(r=>`
     <div class="metric-card">
-      <div class="label">${o(a.label)}</div>
-      <div class="value">${o(a.value)}</div>
+      <div class="label">${a(r.label)}</div>
+      <div class="value">${a(r.value)}</div>
     </div>
-  `).join("")}async function K(){var a;const e=document.getElementById("metrics-chart"),r=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await i("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${o(t.error||"No data")}</p>`);return}Q(t.file_metrics,e),r&&(r.innerHTML=`
+  `).join("")}async function oe(){var r;const e=document.getElementById("metrics-chart"),o=document.getElementById("metrics-detail");e&&(e.style.display="block",e.innerHTML='<p class="text-muted" style="padding:1rem">Analyzing...</p>');const t=await c("/metrics/full");if(t.error||!t.file_metrics){e&&(e.innerHTML=`<p style="color:var(--danger);padding:1rem">${a(t.error||"No data")}</p>`);return}re(t.file_metrics,e),o&&(o.innerHTML=`
       <div class="metric-grid">
         <div class="metric-card"><div class="label">Files Analyzed</div><div class="value">${t.files_analyzed}</div></div>
         <div class="metric-card"><div class="label">Total Functions</div><div class="value">${t.total_functions}</div></div>
         <div class="metric-card"><div class="label">Avg Complexity</div><div class="value">${t.avg_complexity}</div></div>
         <div class="metric-card"><div class="label">Avg Maintainability</div><div class="value">${t.avg_maintainability}</div></div>
-        <div class="metric-card"><div class="label">Scan Mode</div><div class="value">${o(t.scan_mode||"project")}</div></div>
+        <div class="metric-card"><div class="label">Scan Mode</div><div class="value">${a(t.scan_mode||"project")}</div></div>
       </div>
-      ${(a=t.most_complex_functions)!=null&&a.length?`
+      ${(r=t.most_complex_functions)!=null&&r.length?`
         <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem">Most Complex Functions</h3>
         <table><thead><tr><th>Function</th><th>File</th><th>Complexity</th><th>LOC</th></tr></thead>
         <tbody>${t.most_complex_functions.slice(0,10).map(n=>`
-          <tr><td class="text-mono">${o(n.name)}</td><td class="text-sm text-muted">${o(n.file)}</td>
+          <tr><td class="text-mono">${a(n.name)}</td><td class="text-sm text-muted">${a(n.file)}</td>
           <td>${n.complexity}</td><td>${n.loc}</td></tr>`).join("")}</tbody></table>
       `:""}
-    `)}function Q(e,r){const t=r.clientWidth||800,a=400,n=Math.max(...e.map(c=>c.loc||1));let s=`<svg width="${t}" height="${a}" style="background:var(--surface)">`;const d=Math.ceil(Math.sqrt(e.length)),l=t/d,u=a/Math.ceil(e.length/d);e.forEach((c,T)=>{var S;const te=T%d,re=Math.floor(T/d),M=te*l+l/2,E=re*u+u/2,L=Math.max(8,Math.sqrt(c.loc/n)*Math.min(l,u)*.4),ae=c.maintainability??50,C=`hsl(${Math.min(120,Math.max(0,ae*1.2))}, 70%, 50%)`;s+=`<circle cx="${M}" cy="${E}" r="${L}" fill="${C}" fill-opacity="0.7" stroke="${C}" stroke-width="1"
-      style="cursor:pointer" onclick="window.__drillDown('${o(c.path)}')" />`,s+=`<text x="${M}" y="${E+L+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${o(((S=c.path)==null?void 0:S.split("/").pop())||"")}</text>`}),s+="</svg>",r.innerHTML=s}async function W(e){const r=document.getElementById("metrics-detail");if(!r)return;r.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await i("/metrics/file?path="+encodeURIComponent(e));if(t.error){r.innerHTML=`<p style="color:var(--danger)">${o(t.error)}</p>`;return}r.innerHTML=`
-    <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${o(t.path)}</h3>
+    `)}function re(e,o){const t=o.clientWidth||800,r=400,n=Math.max(...e.map(m=>m.loc||1));let i=`<svg width="${t}" height="${r}" style="background:var(--surface)">`;const s=Math.ceil(Math.sqrt(e.length)),d=t/s,l=r/Math.ceil(e.length/s);e.forEach((m,v)=>{var O;const g=v%s,w=Math.floor(v/s),B=g*d+d/2,P=w*l+l/2,z=Math.max(8,Math.sqrt(m.loc/n)*Math.min(d,l)*.4),ue=m.maintainability??50,j=`hsl(${Math.min(120,Math.max(0,ue*1.2))}, 70%, 50%)`;i+=`<circle cx="${B}" cy="${P}" r="${z}" fill="${j}" fill-opacity="0.7" stroke="${j}" stroke-width="1"
+      style="cursor:pointer" onclick="window.__drillDown('${a(m.path)}')" />`,i+=`<text x="${B}" y="${P+z+12}" text-anchor="middle" fill="var(--muted)" font-size="9">${a(((O=m.path)==null?void 0:O.split("/").pop())||"")}</text>`}),i+="</svg>",o.innerHTML=i}async function ne(e){const o=document.getElementById("metrics-detail");if(!o)return;o.innerHTML='<p class="text-muted">Loading file analysis...</p>';const t=await c("/metrics/file?path="+encodeURIComponent(e));if(t.error){o.innerHTML=`<p style="color:var(--danger)">${a(t.error)}</p>`;return}o.innerHTML=`
+    <h3 style="font-size:0.85rem;margin-bottom:0.5rem">${a(t.path)}</h3>
     <div class="metric-grid">
       <div class="metric-card"><div class="label">LOC</div><div class="value">${t.loc}</div></div>
       <div class="metric-card"><div class="label">Total Lines</div><div class="value">${t.total_lines}</div></div>
@@ -187,15 +229,15 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=b,window.__clearErrors=
     </div>
     ${(t.functions||[]).length?`
       <table><thead><tr><th>Function</th><th>Line</th><th>Complexity</th><th>LOC</th><th>Args</th></tr></thead>
-      <tbody>${t.functions.map(a=>`
-        <tr><td class="text-mono">${o(a.name)}</td><td>${a.line}</td><td>${a.complexity}</td><td>${a.loc}</td><td class="text-sm text-muted">${(a.args||[]).join(", ")}</td></tr>
+      <tbody>${t.functions.map(r=>`
+        <tr><td class="text-mono">${a(r.name)}</td><td>${r.line}</td><td>${r.complexity}</td><td>${r.loc}</td><td class="text-sm text-muted">${(r.args||[]).join(", ")}</td></tr>
       `).join("")}</tbody></table>
     `:""}
     ${(t.warnings||[]).length?`
       <h3 style="margin:1rem 0 0.5rem;font-size:0.85rem;color:var(--warn)">Warnings</h3>
-      ${t.warnings.map(a=>`<p class="text-sm" style="color:var(--warn)">Line ${a.line}: ${o(a.message)}</p>`).join("")}
+      ${t.warnings.map(r=>`<p class="text-sm" style="color:var(--warn)">Line ${r.line}: ${a(r.message)}</p>`).join("")}
     `:""}
-  `}window.__loadMetrics=f,window.__loadFullMetrics=K,window.__drillDown=W;let w="anthropic",m="";function V(e){e.innerHTML=`
+  `}window.__loadMetrics=M,window.__loadFullMetrics=oe,window.__drillDown=ne;let S="anthropic",p="";function ae(e){e.innerHTML=`
     <div class="dev-panel-header">
       <h2>Code With Me</h2>
       <div class="flex gap-sm items-center">
@@ -206,7 +248,7 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=b,window.__clearErrors=
         </select>
         <input type="password" id="ai-key" class="input" placeholder="API key..." style="width:200px">
         <button class="btn btn-sm btn-primary" onclick="window.__setAiKey()">Set</button>
-        <span class="text-sm text-muted" id="ai-status">${m?"Key set":"No key"}</span>
+        <span class="text-sm text-muted" id="ai-status">${p?"Key set":"No key"}</span>
       </div>
     </div>
     <div class="chat-container">
@@ -219,13 +261,13 @@ ${t.traceback||""}`,n.focus())},100)}window.__loadErrors=b,window.__clearErrors=
         <button class="btn btn-sm" onclick="window.__undoChat()" title="Undo last file change">Undo</button>
       </div>
     </div>
-  `}async function G(){var n;const e=document.getElementById("chat-input"),r=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!r)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${o(r)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const a={message:r,provider:w};m&&(a.api_key=m);try{const s=await i("/chat","POST",a),d=document.getElementById("chat-loading");d&&d.remove();let l=Z(s.reply||"No response");s.files_changed&&s.files_changed.length>0&&(l+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',l+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',s.files_changed.forEach(u=>{l+=`<div class="text-sm text-mono">${o(u)}</div>`}),l+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${l}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${o(s.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const s=document.getElementById("chat-loading");s&&(s.textContent="Error connecting",s.id="")}}async function J(){try{const e=await i("/chat/undo","POST"),r=document.getElementById("chat-messages");r&&(r.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${o(e.message||"Undo complete")}</div>`,r.scrollTop=r.scrollHeight)}catch{alert("Nothing to undo")}}function X(){const e=document.getElementById("ai-key");m=(e==null?void 0:e.value)||"";const r=document.getElementById("ai-status");r&&(r.textContent=m?"Key set":"No key")}function Y(e){w=e}function Z(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=G,window.__undoChat=J,window.__setAiKey=X,window.__setProvider=Y;const x=document.createElement("style");x.textContent=B,document.head.appendChild(x);const _=H();I(_);const $=[{id:"chat",label:"Code With Me",render:V},{id:"routes",label:"Routes",render:A},{id:"database",label:"Database",render:F},{id:"errors",label:"Errors",render:R},{id:"metrics",label:"Metrics",render:U},{id:"system",label:"System",render:N}];let v="chat";function ee(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
+  `}async function ie(){var n;const e=document.getElementById("chat-input"),o=(n=e==null?void 0:e.value)==null?void 0:n.trim();if(!o)return;e.value="";const t=document.getElementById("chat-messages");if(!t)return;t.innerHTML+=`<div class="chat-msg chat-user">${a(o)}</div>`,t.innerHTML+='<div class="chat-msg chat-bot" id="chat-loading" style="color:var(--muted)">Thinking...</div>',t.scrollTop=t.scrollHeight;const r={message:o,provider:S};p&&(r.api_key=p);try{const i=await c("/chat","POST",r),s=document.getElementById("chat-loading");s&&s.remove();let d=ce(i.reply||"No response");i.files_changed&&i.files_changed.length>0&&(d+='<div style="margin-top:0.5rem;padding:0.5rem;background:var(--bg);border-radius:0.375rem;border:1px solid var(--border)">',d+='<div class="text-sm" style="color:var(--success);font-weight:600;margin-bottom:0.25rem">Files changed:</div>',i.files_changed.forEach(l=>{d+=`<div class="text-sm text-mono">${a(l)}</div>`}),d+="</div>"),t.innerHTML+=`<div class="chat-msg chat-bot">${d}</div>`,t.innerHTML+=`<div class="text-sm text-muted" style="text-align:right;margin-bottom:0.25rem">${a(i.source||"")}</div>`,t.scrollTop=t.scrollHeight}catch{const i=document.getElementById("chat-loading");i&&(i.textContent="Error connecting",i.id="")}}async function se(){try{const e=await c("/chat/undo","POST"),o=document.getElementById("chat-messages");o&&(o.innerHTML+=`<div class="chat-msg chat-bot" style="color:var(--warn)">${a(e.message||"Undo complete")}</div>`,o.scrollTop=o.scrollHeight)}catch{alert("Nothing to undo")}}function de(){const e=document.getElementById("ai-key");p=(e==null?void 0:e.value)||"";const o=document.getElementById("ai-status");o&&(o.textContent=p?"Key set":"No key")}function le(e){S=e}function ce(e){return e.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre style="background:var(--bg);padding:0.5rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.8rem"><code>$2</code></pre>').replace(/`([^`]+)`/g,'<code style="background:var(--bg);padding:0.1rem 0.25rem;border-radius:0.2rem;font-size:0.8em">$1</code>').replace(/\n/g,"<br>")}window.__sendChat=ie,window.__undoChat=se,window.__setAiKey=de,window.__setProvider=le;const L=document.createElement("style");L.textContent=R,document.head.appendChild(L);const I=A();F(I);const C=[{id:"chat",label:"Code With Me",render:ae},{id:"routes",label:"Routes",render:N},{id:"database",label:"Database",render:D},{id:"errors",label:"Errors",render:G},{id:"metrics",label:"Metrics",render:te},{id:"system",label:"System",render:ee}];let f="chat";function me(){const e=document.getElementById("app");if(!e)return;e.innerHTML=`
     <div class="dev-admin">
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
-        <span class="text-sm text-muted">${_.name} &bull; v3.10</span>
+        <span class="text-sm text-muted">${I.name} &bull; v3.10</span>
       </div>
       <div class="dev-tabs" id="tab-bar"></div>
       <div class="dev-content" id="tab-content"></div>
     </div>
-  `;const r=document.getElementById("tab-bar");r.innerHTML=$.map(t=>`<button class="dev-tab ${t.id===v?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),k(v)}function k(e){v=e,document.querySelectorAll(".dev-tab").forEach(n=>{n.classList.toggle("active",n.dataset.tab===e)});const r=document.getElementById("tab-content");if(!r)return;const t=document.createElement("div");t.className="dev-panel active",r.innerHTML="",r.appendChild(t);const a=$.find(n=>n.id===e);a&&a.render(t)}window.__switchTab=k,ee()})();
+  `;const o=document.getElementById("tab-bar");o.innerHTML=C.map(t=>`<button class="dev-tab ${t.id===f?"active":""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`).join(""),H(f)}function H(e){f=e,document.querySelectorAll(".dev-tab").forEach(n=>{n.classList.toggle("active",n.dataset.tab===e)});const o=document.getElementById("tab-content");if(!o)return;const t=document.createElement("div");t.className="dev-panel active",o.innerHTML="",o.appendChild(t);const r=C.find(n=>n.id===e);r&&r.render(t)}window.__switchTab=H,me()})();
