@@ -145,9 +145,24 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
     cMaxY = Math.max(cMaxY, b.y + b.r + 25);
   }
 
-  const pad = 30;
-  const vbX = cMinX - pad, vbY = cMinY - pad;
-  const vbW = (cMaxX - cMinX) + pad * 2, vbH = (cMaxY - cMinY) + pad * 2;
+  const pad = 10;
+  let vbX = cMinX - pad, vbY = cMinY - pad;
+  let vbW = (cMaxX - cMinX) + pad * 2, vbH = (cMaxY - cMinY) + pad * 2;
+
+  // Ensure viewBox matches the SVG aspect ratio so bubbles fill the space
+  const svgAspect = w / h;
+  const vbAspect = vbW / vbH;
+  if (vbAspect > svgAspect) {
+    // Wider than SVG — expand height
+    const newH = vbW / svgAspect;
+    vbY -= (newH - vbH) / 2;
+    vbH = newH;
+  } else {
+    // Taller than SVG — expand width
+    const newW = vbH * svgAspect;
+    vbX -= (newW - vbW) / 2;
+    vbW = newW;
+  }
   const gridStep = Math.max(20, Math.round(Math.max(vbW, vbH) / 20));
 
   // Build wrapper with hover panel
