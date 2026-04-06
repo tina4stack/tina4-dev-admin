@@ -91,10 +91,12 @@ async function loadFullMetrics(): Promise<void> {
 
 function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Record<string, string[]>): void {
   const w = container.clientWidth || 900;
-  const h = 450;
+  const fileCount = files.length;
+  const h = fileCount > 50 ? 600 : fileCount > 20 ? 500 : 450;
   const maxLoc = Math.max(...files.map((f: any) => f.loc || 1));
-  const minRadius = 18;
-  const maxRadius = 50;
+  // Scale bubble sizes down for large sets so they don't overlap
+  const minRadius = fileCount > 50 ? 12 : fileCount > 20 ? 15 : 18;
+  const maxRadius = fileCount > 50 ? 30 : fileCount > 20 ? 40 : 50;
 
   const placeCenterX = 1000;
   const placeCenterY = 1000;
@@ -123,17 +125,19 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
       let overlaps = false;
       for (let j = 0; j < i; j++) {
         const dx = tx - bubbles[j].x, dy = ty - bubbles[j].y;
-        if (Math.sqrt(dx * dx + dy * dy) < bubbles[i].r + bubbles[j].r + 4) { overlaps = true; break; }
+        const packGap = fileCount > 50 ? 15 : fileCount > 20 ? 10 : 4;
+        if (Math.sqrt(dx * dx + dy * dy) < bubbles[i].r + bubbles[j].r + packGap) { overlaps = true; break; }
       }
       if (!overlaps) { bubbles[i].x = tx; bubbles[i].y = ty; placed = true; }
       angle += 0.3; dist += 0.5;
     }
   }
 
-  // Spread bubbles out initially so the attraction is visible
+  // Spread bubbles out — more spread for larger sets
+  const spreadFactor = Math.max(1.5, Math.min(4, bubbles.length / 10));
   for (const b of bubbles) {
-    b.x += (b.x - placeCenterX) * 1.5;
-    b.y += (b.y - placeCenterY) * 1.5;
+    b.x += (b.x - placeCenterX) * spreadFactor;
+    b.y += (b.y - placeCenterY) * spreadFactor;
   }
 
   // Cluster bounds
@@ -201,43 +205,41 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
   for (let y = gy0; y <= gy1; y += gridStep) content += `<line x1="${gx0}" y1="${y}" x2="${gx1}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-opacity="0.4" />`;
   content += "</g>";
 
-  // --- Arrow marker definition ---
-  content += `<defs>
-    <marker id="dep-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--info)" fill-opacity="0.5" />
-    </marker>
-  </defs>`;
-
-  // --- Dependency arrows (files sharing common imports) ---
-  // Build: for each import, which files use it?
+  // --- Dependency arrows (only for small projects — too noisy for large ones) ---
   const importToFiles: Record<string, string[]> = {};
-  for (const [srcPath, deps] of Object.entries(depGraph)) {
-    if (!pathToPos[srcPath]) continue;
-    for (const dep of deps) {
-      if (!importToFiles[dep]) importToFiles[dep] = [];
-      if (!importToFiles[dep].includes(srcPath)) importToFiles[dep].push(srcPath);
-    }
-  }
-
-  // Draw arrows between files that share an import (deduplicated pairs)
-  const drawnPairs = new Set<string>();
   content += '<g class="dep-lines">';
-  for (const files of Object.values(importToFiles)) {
-    if (files.length < 2) continue;
-    for (let i = 0; i < files.length; i++) {
-      for (let j = i + 1; j < files.length; j++) {
-        const pairKey = [files[i], files[j]].sort().join("|");
-        if (drawnPairs.has(pairKey)) continue;
-        drawnPairs.add(pairKey);
-        const a = pathToPos[files[i]], b = pathToPos[files[j]];
-        if (!a || !b) continue;
-        // Shorten line so arrow stops at bubble edge
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const ux = dx / dist, uy = dy / dist;
-        const x1 = a.x + ux * (a.r + 2), y1 = a.y + uy * (a.r + 2);
-        const x2 = b.x - ux * (b.r + 2), y2 = b.y - uy * (b.r + 2);
-        content += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--info)" stroke-width="1.5" stroke-opacity="0.4" marker-end="url(#dep-arrow)" />`;
+  if (fileCount <= 15) {
+    content += `<defs>
+      <marker id="dep-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--info)" fill-opacity="0.5" />
+      </marker>
+    </defs>`;
+
+    for (const [srcPath, deps] of Object.entries(depGraph)) {
+      if (!pathToPos[srcPath]) continue;
+      for (const dep of deps) {
+        if (!importToFiles[dep]) importToFiles[dep] = [];
+        if (!importToFiles[dep].includes(srcPath)) importToFiles[dep].push(srcPath);
+      }
+    }
+
+    const drawnPairs = new Set<string>();
+    for (const files of Object.values(importToFiles)) {
+      if (files.length < 2) continue;
+      for (let i = 0; i < files.length; i++) {
+        for (let j = i + 1; j < files.length; j++) {
+          const pairKey = [files[i], files[j]].sort().join("|");
+          if (drawnPairs.has(pairKey)) continue;
+          drawnPairs.add(pairKey);
+          const a = pathToPos[files[i]], b = pathToPos[files[j]];
+          if (!a || !b) continue;
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const ux = dx / dist, uy = dy / dist;
+          const x1 = a.x + ux * (a.r + 2), y1 = a.y + uy * (a.r + 2);
+          const x2 = b.x - ux * (b.r + 2), y2 = b.y - uy * (b.r + 2);
+          content += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--info)" stroke-width="1.5" stroke-opacity="0.4" marker-end="url(#dep-arrow)" />`;
+        }
       }
     }
   }
@@ -320,32 +322,34 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
 
   // Redraw all bubble positions + dep arrows (called after drag)
   function redrawBubbles(): void {
-    // Rebuild dep arrows
+    // Rebuild dep arrows (only for small projects)
     svgEl.querySelectorAll(".dep-lines line").forEach(l => l.remove());
-    const depGroup = svgEl.querySelector(".dep-lines");
-    if (depGroup) {
-      const redrawnPairs = new Set<string>();
-      for (const files of Object.values(importToFiles)) {
-        if (files.length < 2) continue;
-        for (let i = 0; i < files.length; i++) {
-          for (let j = i + 1; j < files.length; j++) {
-            const pk = [files[i], files[j]].sort().join("|");
-            if (redrawnPairs.has(pk)) continue;
-            redrawnPairs.add(pk);
-            const a = bubbles.find(bb => bb.path === files[i]);
-            const b = bubbles.find(bb => bb.path === files[j]);
-            if (!a || !b) continue;
-            const dx = b.x - a.x, dy = b.y - a.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const ux = dx / dist, uy = dy / dist;
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            line.setAttribute("x1", String(a.x + ux * (a.r + 2)));
-            line.setAttribute("y1", String(a.y + uy * (a.r + 2)));
-            line.setAttribute("x2", String(b.x - ux * (b.r + 2)));
-            line.setAttribute("y2", String(b.y - uy * (b.r + 2)));
-            line.setAttribute("stroke", "var(--info)"); line.setAttribute("stroke-width", "1.5");
-            line.setAttribute("stroke-opacity", "0.4"); line.setAttribute("marker-end", "url(#dep-arrow)");
-            depGroup.appendChild(line);
+    if (fileCount <= 15) {
+      const depGroup = svgEl.querySelector(".dep-lines");
+      if (depGroup) {
+        const redrawnPairs = new Set<string>();
+        for (const files of Object.values(importToFiles)) {
+          if (files.length < 2) continue;
+          for (let i = 0; i < files.length; i++) {
+            for (let j = i + 1; j < files.length; j++) {
+              const pk = [files[i], files[j]].sort().join("|");
+              if (redrawnPairs.has(pk)) continue;
+              redrawnPairs.add(pk);
+              const a = bubbles.find(bb => bb.path === files[i]);
+              const b = bubbles.find(bb => bb.path === files[j]);
+              if (!a || !b) continue;
+              const dx = b.x - a.x, dy = b.y - a.y;
+              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+              const ux = dx / dist, uy = dy / dist;
+              const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              line.setAttribute("x1", String(a.x + ux * (a.r + 2)));
+              line.setAttribute("y1", String(a.y + uy * (a.r + 2)));
+              line.setAttribute("x2", String(b.x - ux * (b.r + 2)));
+              line.setAttribute("y2", String(b.y - uy * (b.r + 2)));
+              line.setAttribute("stroke", "var(--info)"); line.setAttribute("stroke-width", "1.5");
+              line.setAttribute("stroke-opacity", "0.4"); line.setAttribute("marker-end", "url(#dep-arrow)");
+              depGroup.appendChild(line);
+            }
           }
         }
       }
@@ -507,7 +511,11 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
   container.querySelector("div > div:first-child")?.parentElement?.appendChild(legend);
 
   // --- Live gravity animation ---
-  const GAP = 25;
+  // Scale forces based on bubble count — more bubbles = more space needed
+  const n = bubbles.length;
+  const GAP = n > 50 ? 40 : n > 20 ? 30 : 25;
+  const REPEL_STRENGTH = n > 50 ? 0.2 : 0.15;
+  const ATTRACT_STRENGTH = n > 50 ? 0.002 : n > 20 ? 0.004 : 0.008;
   let animId = 0;
 
   function simStep(): void {
@@ -522,20 +530,21 @@ function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Recor
         const ux = dx / dist, uy = dy / dist;
 
         if (dist < minD) {
-          // Repel
-          const push = (minD - dist) * 0.15;
+          // Repel — stronger push to prevent overlap
+          const push = (minD - dist) * REPEL_STRENGTH;
           bubbles[i].x -= ux * push;
           bubbles[i].y -= uy * push;
           bubbles[j].x += ux * push;
           bubbles[j].y += uy * push;
-        } else {
-          // Attract
-          const pull = (dist - minD) * 0.008;
+        } else if (dist < minD * 3) {
+          // Attract — only within 3x the min distance, weaker for large sets
+          const pull = (dist - minD) * ATTRACT_STRENGTH;
           bubbles[i].x += ux * pull;
           bubbles[i].y += uy * pull;
           bubbles[j].x -= ux * pull;
           bubbles[j].y -= uy * pull;
         }
+        // Beyond 3x minD — no force, let bubbles stay where they are
       }
     }
 
