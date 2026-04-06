@@ -135,8 +135,19 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
     bubbles.forEach((b, i) => { if (b.f.path === src) srcIdx = i; });
     if (srcIdx === null) continue;
     for (const tgt of deps) {
-      const tgtName = tgt.split(".").pop()!.toLowerCase();
-      const tgtIdx = nameIdx[tgtName];
+      // Try multiple matching strategies
+      const segments = tgt.replace(/^\.\//, "").replace(/^\.\.\//, "").split(/[./]/);
+      let tgtIdx: number | undefined;
+      // 1. Last segment (e.g. "auth" from "./auth.js" or "auth" from "tina4_python.auth")
+      for (let s = segments.length - 1; s >= 0; s--) {
+        const seg = segments[s].toLowerCase();
+        if (seg && seg !== "js" && seg !== "py" && seg !== "rb" && seg !== "ts" && seg !== "index") {
+          tgtIdx = nameIdx[seg];
+          if (tgtIdx !== undefined) break;
+        }
+      }
+      // 2. Full basename match
+      if (tgtIdx === undefined) tgtIdx = nameIdx[basename(tgt)];
       if (tgtIdx !== undefined && srcIdx !== tgtIdx) edges.push([srcIdx, tgtIdx]);
     }
   }
