@@ -295,7 +295,7 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
     const mx = (e.clientX - rect.left - panX) / zoom;
     const my = (e.clientY - rect.top - panY) / zoom;
     if (panning) { panX = panOX + (e.clientX - panSX); panY = panOY + (e.clientY - panSY); return; }
-    if (dragIdx >= 0) { bubbles[dragIdx].x = mx + dragOX; bubbles[dragIdx].y = my + dragOY; bubbles[dragIdx].vx = 0; bubbles[dragIdx].vy = 0; return; }
+    if (dragIdx >= 0) { dragMoved = true; bubbles[dragIdx].x = mx + dragOX; bubbles[dragIdx].y = my + dragOY; bubbles[dragIdx].vx = 0; bubbles[dragIdx].vy = 0; return; }
     hoveredIdx = -1;
     for (let i = bubbles.length - 1; i >= 0; i--) {
       const b = bubbles[i], dx = mx - b.x, dy = my - b.y;
@@ -311,13 +311,21 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
     if (e.button === 2) { panning = true; panSX = e.clientX; panSY = e.clientY; panOX = panX; panOY = panY; canvas.style.cursor = "move"; return; }
     if (hoveredIdx >= 0) {
       dragIdx = hoveredIdx; dragOX = bubbles[dragIdx].x - mx; dragOY = bubbles[dragIdx].y - my;
-      canvas.style.cursor = "grabbing";
+      dragMoved = false; canvas.style.cursor = "grabbing";
     }
   });
 
-  canvas.addEventListener("mouseup", () => {
-    if (panning) { panning = false; canvas.style.cursor = "default"; }
-    if (dragIdx >= 0) { canvas.style.cursor = "grab"; dragIdx = -1; }
+  let dragMoved = false;
+  canvas.addEventListener("mouseup", (e) => {
+    if (panning) { panning = false; canvas.style.cursor = "default"; return; }
+    if (dragIdx >= 0) {
+      // If we didn't actually move, treat as a click → drill down
+      if (!dragMoved) {
+        drillDown(bubbles[dragIdx].f.path);
+      }
+      canvas.style.cursor = "grab"; dragIdx = -1; dragMoved = false;
+      return;
+    }
   });
 
   canvas.addEventListener("mouseleave", () => { hoveredIdx = -1; dragIdx = -1; panning = false; });
