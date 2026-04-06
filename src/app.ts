@@ -6,6 +6,7 @@ import { renderErrors } from "./components/Errors.js";
 import { renderSystem } from "./components/System.js";
 import { renderMetrics } from "./components/Metrics.js";
 import { renderChat } from "./components/Chat.js";
+// Thoughts is embedded in Code With Me, not a separate tab
 
 // Inject global styles
 const style = document.createElement("style");
@@ -18,8 +19,7 @@ applyTheme(theme);
 
 type TabDef = { id: string; label: string; render: (el: HTMLElement) => void };
 
-const tabs: TabDef[] = [
-  { id: "chat", label: "Code With Me", render: renderChat },
+const baseTabs: TabDef[] = [
   { id: "routes", label: "Routes", render: renderRoutes },
   { id: "database", label: "Database", render: renderDatabase },
   { id: "errors", label: "Errors", render: renderErrors },
@@ -27,7 +27,11 @@ const tabs: TabDef[] = [
   { id: "system", label: "System", render: renderSystem },
 ];
 
-let activeTab = "chat";
+const chatTab: TabDef = { id: "chat", label: "Code With Me", render: renderChat };
+
+let chatUnlocked = localStorage.getItem("tina4_cwm_unlocked") === "true";
+let tabs: TabDef[] = chatUnlocked ? [chatTab, ...baseTabs] : [...baseTabs];
+let activeTab = chatUnlocked ? "chat" : "routes";
 
 function renderApp(): void {
   const app = document.getElementById("app");
@@ -37,7 +41,7 @@ function renderApp(): void {
     <div class="dev-admin">
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
-        <span class="text-sm text-muted">${theme.name} &bull; v3.10</span>
+        <span class="text-sm text-muted" id="version-label" style="cursor:default;user-select:none">${theme.name} &bull; v3.10.70</span>
       </div>
       <div class="dev-tabs" id="tab-bar"></div>
       <div class="dev-content" id="tab-content"></div>
@@ -79,3 +83,30 @@ function switchTab(id: string): void {
 
 // Boot
 renderApp();
+
+// Easter egg: 5 clicks on version label unlocks Code With Me
+let unlockClicks = 0;
+let unlockTimer: ReturnType<typeof setTimeout> | null = null;
+
+document.getElementById("version-label")?.addEventListener("click", () => {
+  if (chatUnlocked) return;
+  unlockClicks++;
+  if (unlockTimer) clearTimeout(unlockTimer);
+  unlockTimer = setTimeout(() => { unlockClicks = 0; }, 2000);
+
+  if (unlockClicks >= 5) {
+    chatUnlocked = true;
+    localStorage.setItem("tina4_cwm_unlocked", "true");
+    tabs = [chatTab, ...baseTabs];
+    activeTab = "chat";
+
+    // Re-render tab bar
+    const tabBar = document.getElementById("tab-bar");
+    if (tabBar) {
+      tabBar.innerHTML = tabs.map(t =>
+        `<button class="dev-tab ${t.id === activeTab ? "active" : ""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`
+      ).join("");
+    }
+    switchTab("chat");
+  }
+});
