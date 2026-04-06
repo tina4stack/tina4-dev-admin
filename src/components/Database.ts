@@ -39,7 +39,7 @@ export function renderDatabase(container: HTMLElement): void {
             <option value="500">500</option>
           </select>
           <span class="text-sm text-muted">Offset</span>
-          <input type="number" id="db-offset" class="input" value="0" style="width:60px" min="0">
+          <input type="number" id="db-offset" class="input" value="0" min="0" style="width:70px;height:30px;-moz-appearance:textfield;-webkit-appearance:none;margin:0">
           <button class="btn btn-primary" onclick="window.__runQuery()">Run</button>
           <button class="btn" onclick="window.__copyCSV()">Copy CSV</button>
           <button class="btn" onclick="window.__copyJSON()">Copy JSON</button>

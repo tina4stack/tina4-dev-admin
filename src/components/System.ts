@@ -56,10 +56,11 @@ async function loadSystem(): Promise<void> {
     { label: "Working Dir", value: d.cwd || "?" },
   ];
 
+  const wide = new Set(["Working Dir", "Database"]);
   grid.innerHTML = cards.map(c => `
-    <div class="metric-card">
+    <div class="metric-card" style="${wide.has(c.label) ? "grid-column:1/-1" : ""}">
       <div class="label">${esc(c.label)}</div>
-      <div class="value" style="font-size:${c.label === "Working Dir" || c.label === "Database" ? "0.75rem" : "1.1rem"}">${esc(c.value)}</div>
+      <div class="value" style="font-size:${wide.has(c.label) ? "0.75rem" : "1.1rem"}">${esc(c.value)}</div>
     </div>
   `).join("");
 

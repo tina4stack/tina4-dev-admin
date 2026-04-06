@@ -41,7 +41,10 @@ function renderApp(): void {
     <div class="dev-admin">
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
-        <span class="text-sm text-muted" id="version-label" style="cursor:default;user-select:none">${theme.name} &bull; v3.10.70</span>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <span class="text-sm text-muted" id="version-label" style="cursor:default;user-select:none">${theme.name} &bull; v3.10.70</span>
+          <button class="btn btn-sm" onclick="window.__closeDevAdmin()" title="Close Dev Admin" style="font-size:14px;width:28px;height:28px;padding:0;line-height:1">&times;</button>
+        </div>
       </div>
       <div class="dev-tabs" id="tab-bar"></div>
       <div class="dev-content" id="tab-content"></div>
@@ -79,6 +82,20 @@ function switchTab(id: string): void {
   if (tab) tab.render(panel);
 }
 
+function closeDevAdmin(): void {
+  // If inside an iframe, remove the parent panel
+  if (window.parent !== window) {
+    try {
+      const panel = window.parent.document.getElementById("tina4-dev-panel");
+      if (panel) panel.remove();
+    } catch {
+      // Cross-origin — just hide ourselves
+      document.body.style.display = "none";
+    }
+  }
+}
+
+(window as any).__closeDevAdmin = closeDevAdmin;
 (window as any).__switchTab = switchTab;
 
 // Boot
