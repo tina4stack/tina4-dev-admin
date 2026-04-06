@@ -14,25 +14,6 @@ export function renderMetrics(container: HTMLElement): void {
   loadFullMetrics();
 }
 
-async function loadQuickMetrics(): Promise<void> {
-  const d = await api<any>("/metrics");
-  const grid = document.getElementById("metrics-quick");
-  if (!grid || d.error) return;
-  grid.innerHTML = [
-    card("Files", d.file_count),
-    card("Lines of Code", d.total_loc),
-    card("Blank Lines", d.total_blank),
-    card("Comments", d.total_comment),
-    card("Classes", d.classes),
-    card("Functions", d.functions),
-    card("Routes", d.route_count),
-    card("ORM Models", d.orm_count),
-    card("Templates", d.template_count),
-    card("Migrations", d.migration_count),
-    card("Avg File Size", (d.avg_file_size ?? 0) + " LOC"),
-  ].join("");
-}
-
 async function loadFullMetrics(): Promise<void> {
   const chartEl = document.getElementById("metrics-chart");
   const complexEl = document.getElementById("metrics-complex");
@@ -45,12 +26,11 @@ async function loadFullMetrics(): Promise<void> {
     return;
   }
 
-  // Scan info
   if (infoEl) {
-    infoEl.textContent = `${d.files_analyzed} files analyzed | ${d.total_functions} functions | Mode: ${d.scan_mode || "project"}`;
+    const mode = d.scan_mode === "framework" ? '<span style="color:#cba6f7;font-weight:600">(Framework)</span> Add code to src/ to see your project' : '';
+    infoEl.innerHTML = `${d.files_analyzed} files analyzed | ${d.total_functions} functions ${mode}`;
   }
 
-  // Summary cards
   const grid = document.getElementById("metrics-quick");
   if (grid) {
     grid.innerHTML = [
@@ -58,23 +38,20 @@ async function loadFullMetrics(): Promise<void> {
       card("Total Functions", d.total_functions),
       card("Avg Complexity", d.avg_complexity),
       card("Avg Maintainability", d.avg_maintainability),
-      card("Scan Mode", d.scan_mode || "project"),
     ].join("");
   }
 
-  // Bubble chart
   if (chartEl && d.file_metrics.length > 0) {
-    renderBubbleChart(d.file_metrics, chartEl, d.dependency_graph || {});
+    renderCanvasBubbles(d.file_metrics, chartEl, d.dependency_graph || {}, d.scan_mode || "project");
   } else if (chartEl) {
     chartEl.innerHTML = '<p class="text-muted">No files to visualize</p>';
   }
 
-  // Most complex functions table
   if (complexEl && d.most_complex_functions?.length) {
     complexEl.innerHTML = `
       <h3 style="font-size:0.85rem;margin-bottom:0.5rem">Most Complex Functions</h3>
       <table>
-        <thead><tr><th>Function</th><th>File</th><th>Line</th><th>Complexity</th><th>LOC</th></tr></thead>
+        <thead><tr><th>Function</th><th>File</th><th>Line</th><th>CC</th><th>LOC</th></tr></thead>
         <tbody>${d.most_complex_functions.slice(0, 15).map((f: any) => `
           <tr>
             <td class="text-mono">${esc(f.name)}</td>
@@ -89,477 +66,280 @@ async function loadFullMetrics(): Promise<void> {
   }
 }
 
-function renderBubbleChart(files: any[], container: HTMLElement, depGraph: Record<string, string[]>): void {
-  const w = container.clientWidth || 900;
-  const fileCount = files.length;
-  const h = fileCount > 50 ? 600 : fileCount > 20 ? 500 : 450;
-  const maxLoc = Math.max(...files.map((f: any) => f.loc || 1));
-  // Scale bubble sizes down for large sets so they don't overlap
-  const minRadius = fileCount > 50 ? 12 : fileCount > 20 ? 15 : 18;
-  const maxRadius = fileCount > 50 ? 30 : fileCount > 20 ? 40 : 50;
+// ── Canvas 2D Bubble Chart (ported from original dev admin) ──
 
-  const placeCenterX = 1000;
-  const placeCenterY = 1000;
+function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Record<string, string[]>, scanMode: string): void {
+  const W = container.offsetWidth || 900;
+  const H = Math.max(450, Math.min(650, W * 0.45));
+  const maxLoc = Math.max(...files.map((f: any) => f.loc)) || 1;
+  const maxDeps = Math.max(...files.map((f: any) => f.dep_count || 0)) || 1;
+  const minR = 14;
+  const maxR = Math.min(70, W / 10);
 
-  // Sort most complex first for packing (most complex → center)
-  const sorted = [...files].sort((a, b) => {
-    const ca = (a.avg_complexity ?? 0) * 2 + (a.loc || 0);
-    const cb = (b.avg_complexity ?? 0) * 2 + (b.loc || 0);
-    return cb - ca;
-  });
+  // Health color: complexity + tests + dependencies
+  function healthColor(f: any): string {
+    const cc = Math.min((f.avg_complexity || 0) / 10, 1);
+    const untested = f.has_tests ? 0 : 1;
+    const deps = Math.min((f.dep_count || 0) / 5, 1);
+    const score = cc * 0.4 + untested * 0.4 + deps * 0.2;
+    const s = Math.max(0, Math.min(1, score));
+    const hue = Math.round(120 * (1 - s));
+    const sat = Math.round(70 + s * 30);
+    const lit = Math.round(42 + 18 * (1 - s));
+    return `hsl(${hue},${sat}%,${lit}%)`;
+  }
 
-  const bubbles = sorted.map((f: any) => ({
-    ...f,
-    r: Math.max(minRadius, Math.min(maxRadius, Math.sqrt((f.loc || 1) / maxLoc) * maxRadius)),
-    x: placeCenterX,
-    y: placeCenterY,
-  }));
+  // Size score: composite of LOC + complexity + deps
+  function sizeScore(f: any): number {
+    return (f.loc / maxLoc) * 0.4 + ((f.avg_complexity || 0) / 10) * 0.4 + ((f.dep_count || 0) / maxDeps) * 0.2;
+  }
 
-  // Circle packing — spiral outward from center
-  for (let i = 0; i < bubbles.length; i++) {
-    if (i === 0) continue;
-    let angle = 0, dist = 0, placed = false;
-    while (!placed) {
-      const tx = placeCenterX + Math.cos(angle) * dist;
-      const ty = placeCenterY + Math.sin(angle) * dist;
-      let overlaps = false;
-      for (let j = 0; j < i; j++) {
-        const dx = tx - bubbles[j].x, dy = ty - bubbles[j].y;
-        const packGap = fileCount > 50 ? 15 : fileCount > 20 ? 10 : 4;
-        if (Math.sqrt(dx * dx + dy * dy) < bubbles[i].r + bubbles[j].r + packGap) { overlaps = true; break; }
+  // Sort smallest first for spiral placement (biggest ends up outside)
+  const sorted = [...files].sort((a, b) => sizeScore(a) - sizeScore(b));
+
+  // Spiral placement
+  const cx = W / 2, cy = H / 2;
+  const bubbles: any[] = [];
+  let angle = 0, spiralR = 0;
+
+  for (const f of sorted) {
+    const r = minR + Math.sqrt(sizeScore(f)) * (maxR - minR);
+    const color = healthColor(f);
+    let placed = false;
+    for (let attempt = 0; attempt < 800; attempt++) {
+      const px = cx + spiralR * Math.cos(angle);
+      const py = cy + spiralR * Math.sin(angle);
+      let collides = false;
+      for (const b of bubbles) {
+        const dx = px - b.x, dy = py - b.y;
+        if (Math.sqrt(dx * dx + dy * dy) < r + b.r + 2) { collides = true; break; }
       }
-      if (!overlaps) { bubbles[i].x = tx; bubbles[i].y = ty; placed = true; }
-      angle += 0.3; dist += 0.5;
+      if (!collides && px > r + 2 && px < W - r - 2 && py > r + 25 && py < H - r - 2) {
+        bubbles.push({ x: px, y: py, vx: 0, vy: 0, r, color, f });
+        placed = true; break;
+      }
+      angle += 0.2; spiralR += 0.04;
+    }
+    if (!placed) {
+      bubbles.push({ x: cx + (Math.random() - 0.5) * W * 0.3, y: cy + (Math.random() - 0.5) * H * 0.3, vx: 0, vy: 0, r, color, f });
     }
   }
 
-  // Spread bubbles out — more spread for larger sets
-  const spreadFactor = Math.max(1.5, Math.min(4, bubbles.length / 10));
-  for (const b of bubbles) {
-    b.x += (b.x - placeCenterX) * spreadFactor;
-    b.y += (b.y - placeCenterY) * spreadFactor;
+  // Build edges from dependency graph
+  const edges: [number, number][] = [];
+  function basename(p: string): string { const n = p.split("/").pop() || ""; const d = n.lastIndexOf("."); return (d > 0 ? n.substring(0, d) : n).toLowerCase(); }
+  const nameIdx: Record<string, number> = {};
+  bubbles.forEach((b, i) => { nameIdx[basename(b.f.path)] = i; });
+  for (const [src, deps] of Object.entries(depGraph)) {
+    let srcIdx: number | null = null;
+    bubbles.forEach((b, i) => { if (b.f.path === src) srcIdx = i; });
+    if (srcIdx === null) continue;
+    for (const tgt of deps) {
+      const tgtName = tgt.split(".").pop()!.toLowerCase();
+      const tgtIdx = nameIdx[tgtName];
+      if (tgtIdx !== undefined && srcIdx !== tgtIdx) edges.push([srcIdx, tgtIdx]);
+    }
   }
 
-  // Cluster bounds
-  let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
-  for (const b of bubbles) {
-    cMinX = Math.min(cMinX, b.x - b.r - 15);
-    cMaxX = Math.max(cMaxX, b.x + b.r + 15);
-    cMinY = Math.min(cMinY, b.y - b.r - 15);
-    cMaxY = Math.max(cMaxY, b.y + b.r + 25);
-  }
+  // Create canvas
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  canvas.style.cssText = "display:block;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:#0f172a";
+  const modeLabel = scanMode === "framework" ? '<span style="color:#cba6f7;font-weight:600">(Framework)</span> Add code to src/ to see your project' : '';
+  container.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem"><h3 style="margin:0;font-size:0.85rem">Code Landscape ${modeLabel}</h3><span style="font-size:0.65rem;color:var(--muted)">Drag bubbles | Dbl-click to drill down</span></div><div style="position:relative" id="metrics-canvas-wrap"></div>`;
+  document.getElementById("metrics-canvas-wrap")!.appendChild(canvas);
 
-  const pad = 10;
-  let vbX = cMinX - pad, vbY = cMinY - pad;
-  let vbW = (cMaxX - cMinX) + pad * 2, vbH = (cMaxY - cMinY) + pad * 2;
-
-  // Ensure viewBox matches the SVG aspect ratio so bubbles fill the space
-  const svgAspect = w / h;
-  const vbAspect = vbW / vbH;
-  if (vbAspect > svgAspect) {
-    // Wider than SVG — expand height
-    const newH = vbW / svgAspect;
-    vbY -= (newH - vbH) / 2;
-    vbH = newH;
-  } else {
-    // Taller than SVG — expand width
-    const newW = vbH * svgAspect;
-    vbX -= (newW - vbW) / 2;
-    vbW = newW;
-  }
-  const gridStep = Math.max(20, Math.round(Math.max(vbW, vbH) / 20));
-
-  // Build wrapper with hover panel
-  container.innerHTML = `
-    <div style="position:relative;display:flex;gap:0">
-      <div style="flex:1;position:relative">
-        <div style="position:absolute;top:8px;left:8px;z-index:2;display:flex;gap:4px;flex-direction:column">
-          <button class="btn btn-sm" id="metrics-zoom-in" style="width:28px;height:28px;padding:0;font-size:14px;font-weight:700;line-height:1">+</button>
-          <button class="btn btn-sm" id="metrics-zoom-out" style="width:28px;height:28px;padding:0;font-size:14px;font-weight:700;line-height:1">&minus;</button>
-          <button class="btn btn-sm" id="metrics-zoom-fit" style="width:28px;height:28px;padding:0;font-size:10px;font-weight:700;line-height:1">Fit</button>
-        </div>
-        <svg id="metrics-svg" width="100%" height="${h}" viewBox="${vbX} ${vbY} ${vbW} ${vbH}" style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;cursor:grab"></svg>
-      </div>
-      <div id="metrics-hover-panel" style="width:200px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem;font-size:0.75rem;margin-left:0.5rem;overflow-y:auto;height:${h}px">
-        <div class="text-muted" style="text-align:center;padding-top:2rem">Hover a bubble<br>to see stats</div>
-      </div>
-    </div>
+  // Zoom buttons
+  const btnWrap = document.createElement("div");
+  btnWrap.style.cssText = "position:absolute;top:8px;left:8px;z-index:2;display:flex;gap:4px;flex-direction:column";
+  btnWrap.innerHTML = `
+    <button class="btn btn-sm" id="metrics-zoom-in" style="width:28px;height:28px;padding:0;font-size:14px;font-weight:700;line-height:1">+</button>
+    <button class="btn btn-sm" id="metrics-zoom-out" style="width:28px;height:28px;padding:0;font-size:14px;font-weight:700;line-height:1">&minus;</button>
+    <button class="btn btn-sm" id="metrics-zoom-fit" style="width:28px;height:28px;padding:0;font-size:10px;font-weight:700;line-height:1">Fit</button>
   `;
+  document.getElementById("metrics-canvas-wrap")!.appendChild(btnWrap);
 
-  const svgEl = document.getElementById("metrics-svg") as unknown as SVGSVGElement;
-  if (!svgEl) return;
+  document.getElementById("metrics-zoom-in")?.addEventListener("click", () => { zoom = Math.min(5, zoom * 1.3); });
+  document.getElementById("metrics-zoom-out")?.addEventListener("click", () => { zoom = Math.max(0.3, zoom * 0.7); });
+  document.getElementById("metrics-zoom-fit")?.addEventListener("click", () => { zoom = 1; panX = 0; panY = 0; });
+  const ctx = canvas.getContext("2d")!;
 
-  // Build path lookup for dependency lines
-  const pathToPos: Record<string, { x: number; y: number; r: number }> = {};
-  for (const b of bubbles) { if (b.path) pathToPos[b.path] = { x: b.x, y: b.y, r: b.r }; }
+  let hoveredIdx = -1, dragIdx = -1, dragOX = 0, dragOY = 0;
+  let panX = 0, panY = 0, zoom = 1, panning = false, panSX = 0, panSY = 0, panOX = 0, panOY = 0;
 
-  let content = "";
-
-  // --- Grid ---
-  const gx0 = Math.floor((vbX - vbW) / gridStep) * gridStep;
-  const gx1 = Math.ceil((vbX + vbW * 3) / gridStep) * gridStep;
-  const gy0 = Math.floor((vbY - vbH) / gridStep) * gridStep;
-  const gy1 = Math.ceil((vbY + vbH * 3) / gridStep) * gridStep;
-  content += '<g class="metrics-grid">';
-  for (let x = gx0; x <= gx1; x += gridStep) content += `<line x1="${x}" y1="${gy0}" x2="${x}" y2="${gy1}" stroke="var(--border)" stroke-width="0.5" stroke-opacity="0.4" />`;
-  for (let y = gy0; y <= gy1; y += gridStep) content += `<line x1="${gx0}" y1="${y}" x2="${gx1}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-opacity="0.4" />`;
-  content += "</g>";
-
-  // --- Dependency arrows (only for small projects — too noisy for large ones) ---
-  const importToFiles: Record<string, string[]> = {};
-  content += '<g class="dep-lines">';
-  if (fileCount <= 15) {
-    content += `<defs>
-      <marker id="dep-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--info)" fill-opacity="0.5" />
-      </marker>
-    </defs>`;
-
-    for (const [srcPath, deps] of Object.entries(depGraph)) {
-      if (!pathToPos[srcPath]) continue;
-      for (const dep of deps) {
-        if (!importToFiles[dep]) importToFiles[dep] = [];
-        if (!importToFiles[dep].includes(srcPath)) importToFiles[dep].push(srcPath);
-      }
+  // Physics simulation
+  function simulate(): void {
+    const damping = 0.65, springK = 0.002, repulse = 40, grav = 0.008;
+    // Gravity toward center — bigger bubbles pulled harder
+    for (let i = 0; i < bubbles.length; i++) {
+      if (i === dragIdx) continue;
+      const b = bubbles[i];
+      const dx = cx - b.x, dy = cy - b.y;
+      const sizeFactor = 0.3 + (b.r / maxR) * 0.7;
+      const pull = grav * sizeFactor * sizeFactor;
+      b.vx += dx * pull; b.vy += dy * pull;
     }
-
-    const drawnPairs = new Set<string>();
-    for (const files of Object.values(importToFiles)) {
-      if (files.length < 2) continue;
-      for (let i = 0; i < files.length; i++) {
-        for (let j = i + 1; j < files.length; j++) {
-          const pairKey = [files[i], files[j]].sort().join("|");
-          if (drawnPairs.has(pairKey)) continue;
-          drawnPairs.add(pairKey);
-          const a = pathToPos[files[i]], b = pathToPos[files[j]];
-          if (!a || !b) continue;
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const ux = dx / dist, uy = dy / dist;
-          const x1 = a.x + ux * (a.r + 2), y1 = a.y + uy * (a.r + 2);
-          const x2 = b.x - ux * (b.r + 2), y2 = b.y - uy * (b.r + 2);
-          content += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--info)" stroke-width="1.5" stroke-opacity="0.4" marker-end="url(#dep-arrow)" />`;
-        }
-      }
+    // Spring forces along edges
+    for (const [ei, ej] of edges) {
+      const a = bubbles[ei], b = bubbles[ej];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const rest = a.r + b.r + 20;
+      const force = (dist - rest) * springK;
+      const fx = dx / dist * force, fy = dy / dist * force;
+      if (ei !== dragIdx) { a.vx += fx; a.vy += fy; }
+      if (ej !== dragIdx) { b.vx -= fx; b.vy -= fy; }
     }
-  }
-  content += "</g>";
-
-  // --- Bubbles ---
-  for (const f of bubbles) {
-    const mi = f.maintainability ?? 50;
-    // Composite health: MI + test bonus + dep penalty
-    const testBonus = f.has_tests ? 15 : -15;
-    const depPenalty = Math.min((f.dep_count ?? 0) * 3, 20);
-    const health = Math.min(120, Math.max(0, (mi * 1.2) + testBonus - depPenalty));
-    const hue = health;
-    const color = `hsl(${hue}, 80%, 45%)`;
-    const fileName = f.path?.split("/").pop() || "?";
-    const hasTests = f.has_tests === true;
-    const depCount = f.dep_count ?? 0;
-
-    content += `<circle cx="${f.x}" cy="${f.y}" r="${f.r}" fill="${color}" fill-opacity="0.6" stroke="${color}" stroke-width="1.5" style="cursor:pointer" data-drill="${esc(f.path)}" />`;
-    content += `<title>${esc(f.path)}\nLOC: ${f.loc} | CC: ${f.avg_complexity} | MI: ${mi}${hasTests ? " | Tested" : ""}${depCount > 0 ? " | Deps: " + depCount : ""}</title>`;
-
-    if (f.r > 15) {
-      const label = fileName.length > 12 ? fileName.substring(0, 10) + ".." : fileName;
-      content += `<text x="${f.x}" y="${f.y + 2}" text-anchor="middle" fill="white" font-size="8" font-weight="600" style="pointer-events:none" data-for="${esc(f.path)}" data-role="label">${esc(label)}</text>`;
-    }
-
-    // (T) tested badge — inside bubble, bottom-center
-    if (hasTests) {
-      const tx = f.x, ty = f.y + f.r - 10;
-      content += `<circle cx="${tx}" cy="${ty}" r="7" fill="var(--success)" stroke="var(--surface)" stroke-width="1" data-for="${esc(f.path)}" data-role="t-circle" />`;
-      content += `<text x="${tx}" y="${ty + 3}" text-anchor="middle" fill="white" font-size="7" font-weight="700" style="pointer-events:none" data-for="${esc(f.path)}" data-role="t-text">T</text>`;
-    }
-
-    // (D) dependency badge — inside bubble, top-center
-    if (depCount > 0) {
-      const dx = f.x, dy = f.y - f.r + 10;
-      content += `<circle cx="${dx}" cy="${dy}" r="7" fill="var(--info)" stroke="var(--surface)" stroke-width="1" data-for="${esc(f.path)}" data-role="d-circle" />`;
-      content += `<text x="${dx}" y="${dy + 3}" text-anchor="middle" fill="white" font-size="7" font-weight="700" style="pointer-events:none" data-for="${esc(f.path)}" data-role="d-text">D</text>`;
-    }
-  }
-
-  svgEl.innerHTML = content;
-
-  // --- State ---
-  let didDrag = false;
-  let isPanning = false;
-  let draggingBubble: any = null;
-  let panStart = { x: 0, y: 0, vbX: 0, vbY: 0 };
-  let vb = { x: vbX, y: vbY, w: vbW, h: vbH };
-  const fitVb = { x: vbX, y: vbY, w: vbW, h: vbH };
-  const DRAG_THRESHOLD = 4;
-  const hoverPanel = document.getElementById("metrics-hover-panel")!;
-
-  function applyVb(): void { svgEl.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
-
-  function zoom(factor: number): void {
-    const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
-    vb.w *= factor; vb.h *= factor;
-    vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2;
-    applyVb();
-  }
-
-  // Convert screen coords to SVG viewBox coords (accounts for preserveAspectRatio)
-  function screenToSvg(sx: number, sy: number): { x: number; y: number } {
-    const pt = svgEl.createSVGPoint();
-    pt.x = sx;
-    pt.y = sy;
-    const ctm = svgEl.getScreenCTM();
-    if (ctm) {
-      const svgPt = pt.matrixTransform(ctm.inverse());
-      return { x: svgPt.x, y: svgPt.y };
-    }
-    // Fallback
-    const rect = svgEl.getBoundingClientRect();
-    return {
-      x: vb.x + (sx - rect.left) / rect.width * vb.w,
-      y: vb.y + (sy - rect.top) / rect.height * vb.h,
-    };
-  }
-
-  // Redraw all bubble positions + dep arrows (called after drag)
-  function redrawBubbles(): void {
-    // Rebuild dep arrows (only for small projects)
-    svgEl.querySelectorAll(".dep-lines line").forEach(l => l.remove());
-    if (fileCount <= 15) {
-      const depGroup = svgEl.querySelector(".dep-lines");
-      if (depGroup) {
-        const redrawnPairs = new Set<string>();
-        for (const files of Object.values(importToFiles)) {
-          if (files.length < 2) continue;
-          for (let i = 0; i < files.length; i++) {
-            for (let j = i + 1; j < files.length; j++) {
-              const pk = [files[i], files[j]].sort().join("|");
-              if (redrawnPairs.has(pk)) continue;
-              redrawnPairs.add(pk);
-              const a = bubbles.find(bb => bb.path === files[i]);
-              const b = bubbles.find(bb => bb.path === files[j]);
-              if (!a || !b) continue;
-              const dx = b.x - a.x, dy = b.y - a.y;
-              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-              const ux = dx / dist, uy = dy / dist;
-              const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-              line.setAttribute("x1", String(a.x + ux * (a.r + 2)));
-              line.setAttribute("y1", String(a.y + uy * (a.r + 2)));
-              line.setAttribute("x2", String(b.x - ux * (b.r + 2)));
-              line.setAttribute("y2", String(b.y - uy * (b.r + 2)));
-              line.setAttribute("stroke", "var(--info)"); line.setAttribute("stroke-width", "1.5");
-              line.setAttribute("stroke-opacity", "0.4"); line.setAttribute("marker-end", "url(#dep-arrow)");
-              depGroup.appendChild(line);
-            }
-          }
-        }
-      }
-    }
-
-    // Update circle + text positions
-    svgEl.querySelectorAll("[data-drill]").forEach((circle) => {
-      const path = circle.getAttribute("data-drill");
-      const b = bubbles.find(bb => bb.path === path);
-      if (!b) return;
-      circle.setAttribute("cx", String(b.x));
-      circle.setAttribute("cy", String(b.y));
-    });
-
-    // Update associated text/badge positions via data-for
-    svgEl.querySelectorAll("[data-for]").forEach((el) => {
-      const path = el.getAttribute("data-for");
-      const role = el.getAttribute("data-role");
-      const b = bubbles.find(bb => bb.path === path);
-      if (!b) return;
-      if (role === "label") { el.setAttribute("x", String(b.x)); el.setAttribute("y", String(b.y + 2)); }
-      else if (role === "t-circle") { el.setAttribute("cx", String(b.x)); el.setAttribute("cy", String(b.y + b.r - 10)); }
-      else if (role === "t-text") { el.setAttribute("x", String(b.x)); el.setAttribute("y", String(b.y + b.r - 7)); }
-      else if (role === "d-circle") { el.setAttribute("cx", String(b.x)); el.setAttribute("cy", String(b.y - b.r + 10)); }
-      else if (role === "d-text") { el.setAttribute("x", String(b.x)); el.setAttribute("y", String(b.y - b.r + 13)); }
-    });
-  }
-
-  // Show stats on hover panel
-  function showHoverStats(b: any): void {
-    const mi = b.maintainability ?? 0;
-    const hue = Math.min(120, Math.max(0, mi * 1.2));
-    const miColor = `hsl(${hue}, 80%, 45%)`;
-    hoverPanel.innerHTML = `
-      <div style="font-weight:700;font-size:0.85rem;margin-bottom:0.5rem;word-break:break-all">${esc(b.path || "?")}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:0.5rem">
-        <div><span class="text-muted">LOC</span><br><strong>${b.loc ?? 0}</strong></div>
-        <div><span class="text-muted">Lines</span><br><strong>${b.total_lines ?? b.loc ?? 0}</strong></div>
-        <div><span class="text-muted">Complexity</span><br><strong>${b.avg_complexity ?? 0}</strong></div>
-        <div><span class="text-muted">MI</span><br><strong style="color:${miColor}">${mi}</strong></div>
-        <div><span class="text-muted">Functions</span><br><strong>${b.function_count ?? 0}</strong></div>
-        <div><span class="text-muted">Deps</span><br><strong>${b.dep_count ?? 0}</strong></div>
-      </div>
-      <div style="margin-bottom:0.25rem">${b.has_tests ? '<span class="badge badge-success">Tested</span>' : '<span class="badge badge-muted">No tests</span>'}</div>
-      ${(b.dep_count ?? 0) > 0 ? '<div><span class="badge badge-info">' + b.dep_count + ' dependencies</span></div>' : ""}
-      <div style="margin-top:0.75rem;font-size:0.7rem;color:var(--muted)">Click to drill down</div>
-    `;
-  }
-
-  // --- Hover listeners on each bubble ---
-  svgEl.querySelectorAll("[data-drill]").forEach((circle) => {
-    circle.addEventListener("mouseenter", () => {
-      const path = circle.getAttribute("data-drill");
-      const b = bubbles.find(bb => bb.path === path);
-      if (b) showHoverStats(b);
-    });
-  });
-
-  // --- Mouse handling: pan canvas OR drag bubble ---
-  // Key: only start dragging after mouse moves past threshold.
-  // A short click (no movement) always fires drill-down.
-  let mouseDownTarget: Element | null = null;
-  let mouseDownPos = { x: 0, y: 0 };
-  let bubbleDragOffset = { x: 0, y: 0 };
-
-  svgEl.addEventListener("mousedown", (e: MouseEvent) => {
-    if (e.button !== 0) return;
-    didDrag = false;
-    draggingBubble = null;
-    mouseDownTarget = e.target as Element;
-    mouseDownPos = { x: e.clientX, y: e.clientY };
-
-    // Always start as a potential pan; bubble drag only kicks in after threshold
-    isPanning = true;
-    panStart = { x: e.clientX, y: e.clientY, vbX: vb.x, vbY: vb.y };
-  });
-
-  window.addEventListener("mousemove", (e: MouseEvent) => {
-    if (!isPanning && !draggingBubble) return;
-
-    const dx = e.clientX - mouseDownPos.x;
-    const dy = e.clientY - mouseDownPos.y;
-    const moved = Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD;
-    if (!moved) return;
-
-    // First real movement — decide: bubble drag or canvas pan
-    if (!didDrag) {
-      didDrag = true;
-      const drillPath = mouseDownTarget?.getAttribute?.("data-drill");
-      if (drillPath) {
-        const b = bubbles.find(bb => bb.path === drillPath);
-        if (b) {
-          draggingBubble = b;
-          isPanning = false;
-          svgEl.style.cursor = "move";
-          // Capture offset so bubble doesn't snap to cursor
-          const startSvg = screenToSvg(mouseDownPos.x, mouseDownPos.y);
-          bubbleDragOffset = { x: b.x - startSvg.x, y: b.y - startSvg.y };
-        }
-      }
-      if (!draggingBubble) {
-        svgEl.style.cursor = "grabbing";
-      }
-    }
-
-    if (draggingBubble) {
-      const pos = screenToSvg(e.clientX, e.clientY);
-      draggingBubble.x = pos.x + bubbleDragOffset.x;
-      draggingBubble.y = pos.y + bubbleDragOffset.y;
-      redrawBubbles();
-    } else if (isPanning) {
-      // Convert pixel delta to SVG units using the CTM scale
-      const ctm = svgEl.getScreenCTM();
-      if (ctm) {
-        vb.x = panStart.vbX - dx / ctm.a;
-        vb.y = panStart.vbY - dy / ctm.d;
-      } else {
-        const rect = svgEl.getBoundingClientRect();
-        vb.x = panStart.vbX - (dx / rect.width * vb.w);
-        vb.y = panStart.vbY - (dy / rect.height * vb.h);
-      }
-      applyVb();
-    }
-  });
-
-  window.addEventListener("mouseup", (e: MouseEvent) => {
-    const wasDrag = didDrag;
-    const target = mouseDownTarget;
-
-    // If no drag happened and we clicked a bubble → drill down
-    if (!wasDrag && target) {
-      const path = target.getAttribute?.("data-drill");
-      if (path) drillDown(path);
-    }
-
-    draggingBubble = null;
-    isPanning = false;
-    didDrag = false;
-    mouseDownTarget = null;
-    svgEl.style.cursor = "grab";
-  });
-
-  // --- Zoom buttons ---
-  document.getElementById("metrics-zoom-in")?.addEventListener("click", () => zoom(0.7));
-  document.getElementById("metrics-zoom-out")?.addEventListener("click", () => zoom(1.4));
-  document.getElementById("metrics-zoom-fit")?.addEventListener("click", () => { vb = { ...fitVb }; applyVb(); });
-
-  // --- Floating legend ---
-  const legend = document.createElement("div");
-  legend.style.cssText = "position:absolute;bottom:8px;left:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:11px;line-height:1.6;opacity:0.9;z-index:2";
-  legend.innerHTML = `
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(0,80%,45%);vertical-align:middle"></span> Low MI &nbsp;
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(60,80%,45%);vertical-align:middle"></span> Med &nbsp;
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(120,80%,45%);vertical-align:middle"></span> High MI &nbsp;
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);vertical-align:middle"></span> T &nbsp;
-    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--info);vertical-align:middle"></span> D &nbsp;
-    <span style="color:var(--info)">---</span> Dep
-  `;
-  container.querySelector("div > div:first-child")?.parentElement?.appendChild(legend);
-
-  // --- Live gravity animation ---
-  // Scale forces based on bubble count — more bubbles = more space needed
-  const n = bubbles.length;
-  const GAP = n > 50 ? 40 : n > 20 ? 30 : 25;
-  const REPEL_STRENGTH = n > 50 ? 0.2 : 0.15;
-  const ATTRACT_STRENGTH = n > 50 ? 0.002 : n > 20 ? 0.004 : 0.008;
-  let animId = 0;
-
-  function simStep(): void {
-    if (draggingBubble) { animId = requestAnimationFrame(simStep); return; }
-
+    // Soft repulsion
     for (let i = 0; i < bubbles.length; i++) {
       for (let j = i + 1; j < bubbles.length; j++) {
-        const dx = bubbles[j].x - bubbles[i].x;
-        const dy = bubbles[j].y - bubbles[i].y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-        const minD = bubbles[i].r + bubbles[j].r + GAP;
-        const ux = dx / dist, uy = dy / dist;
-
-        if (dist < minD) {
-          // Repel — stronger push to prevent overlap
-          const push = (minD - dist) * REPEL_STRENGTH;
-          bubbles[i].x -= ux * push;
-          bubbles[i].y -= uy * push;
-          bubbles[j].x += ux * push;
-          bubbles[j].y += uy * push;
-        } else if (dist < minD * 3) {
-          // Attract — only within 3x the min distance, weaker for large sets
-          const pull = (dist - minD) * ATTRACT_STRENGTH;
-          bubbles[i].x += ux * pull;
-          bubbles[i].y += uy * pull;
-          bubbles[j].x -= ux * pull;
-          bubbles[j].y -= uy * pull;
+        const a = bubbles[i], b = bubbles[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDist = a.r + b.r + 20;
+        if (dist < minDist) {
+          const force = repulse * (minDist - dist) / minDist;
+          const fx = dx / dist * force, fy = dy / dist * force;
+          if (i !== dragIdx) { a.vx -= fx; a.vy -= fy; }
+          if (j !== dragIdx) { b.vx += fx; b.vy += fy; }
         }
-        // Beyond 3x minD — no force, let bubbles stay where they are
+      }
+    }
+    // Apply velocity
+    for (let i = 0; i < bubbles.length; i++) {
+      if (i === dragIdx) continue;
+      const b = bubbles[i];
+      b.vx *= damping; b.vy *= damping;
+      const maxV = 2;
+      b.vx = Math.max(-maxV, Math.min(maxV, b.vx));
+      b.vy = Math.max(-maxV, Math.min(maxV, b.vy));
+      b.x += b.vx; b.y += b.vy;
+      b.x = Math.max(b.r + 2, Math.min(W - b.r - 2, b.x));
+      b.y = Math.max(b.r + 25, Math.min(H - b.r - 2, b.y));
+    }
+  }
+
+  // Draw frame
+  function draw(): void {
+    simulate();
+    ctx.clearRect(0, 0, W, H);
+    ctx.save(); ctx.translate(panX, panY); ctx.scale(zoom, zoom);
+
+    // Grid
+    ctx.strokeStyle = "rgba(255,255,255,0.03)"; ctx.lineWidth = 1 / zoom;
+    for (let gx = 0; gx < W / zoom; gx += 50) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H / zoom); ctx.stroke(); }
+    for (let gy = 0; gy < H / zoom; gy += 50) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W / zoom, gy); ctx.stroke(); }
+
+    // Dependency arrows
+    for (const [ei, ej] of edges) {
+      const a = bubbles[ei], b = bubbles[ej];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const hi = (hoveredIdx === ei || hoveredIdx === ej);
+      ctx.beginPath();
+      ctx.moveTo(a.x + dx / dist * a.r, a.y + dy / dist * a.r);
+      const ex = b.x - dx / dist * b.r, ey = b.y - dy / dist * b.r;
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = hi ? "rgba(139,180,250,0.9)" : "rgba(255,255,255,0.15)";
+      ctx.lineWidth = hi ? 3 : 1; ctx.stroke();
+      // Arrowhead
+      const aLen = hi ? 12 : 6;
+      const aAng = Math.atan2(dy, dx);
+      ctx.beginPath(); ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - aLen * Math.cos(aAng - 0.4), ey - aLen * Math.sin(aAng - 0.4));
+      ctx.lineTo(ex - aLen * Math.cos(aAng + 0.4), ey - aLen * Math.sin(aAng + 0.4));
+      ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+    }
+
+    // Bubbles
+    for (let idx = 0; idx < bubbles.length; idx++) {
+      const b = bubbles[idx];
+      const isH = idx === hoveredIdx;
+      const drawR = isH ? b.r + 4 : b.r;
+      // Hover glow
+      if (isH) { ctx.beginPath(); ctx.arc(b.x, b.y, drawR + 8, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill(); }
+      // Bubble
+      ctx.beginPath(); ctx.arc(b.x, b.y, drawR, 0, Math.PI * 2);
+      ctx.fillStyle = b.color; ctx.globalAlpha = isH ? 1.0 : 0.85; ctx.fill();
+      ctx.globalAlpha = 1; ctx.strokeStyle = isH ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.25)"; ctx.lineWidth = isH ? 2.5 : 1.5; ctx.stroke();
+      // Label
+      const name = b.f.path.split("/").pop()?.replace(/\.\w+$/, "") || "?";
+      if (drawR > 16) {
+        const fs = Math.max(8, Math.min(13, drawR * 0.38));
+        ctx.fillStyle = "#fff"; ctx.font = `600 ${fs}px monospace`; ctx.textAlign = "center";
+        ctx.fillText(name, b.x, b.y - 2);
+        ctx.fillStyle = "rgba(255,255,255,0.65)"; ctx.font = `${fs - 1}px monospace`;
+        ctx.fillText(`${b.f.loc} LOC`, b.x, b.y + fs);
+      }
+      // D badge at top, T badge at bottom
+      const mfs = Math.max(9, drawR * 0.3), mrad = mfs * 0.7;
+      if (drawR > 14 && b.f.dep_count > 0) {
+        const dy2 = b.y - drawR + mrad + 3;
+        ctx.beginPath(); ctx.arc(b.x, dy2, mrad, 0, Math.PI * 2); ctx.fillStyle = "#ea580c"; ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.font = `bold ${mfs}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("D", b.x, dy2 + mfs * 0.35);
+      }
+      if (drawR > 14 && b.f.has_tests) {
+        const ty = b.y + drawR - mrad - 3;
+        ctx.beginPath(); ctx.arc(b.x, ty, mrad, 0, Math.PI * 2); ctx.fillStyle = "#16a34a"; ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.font = `bold ${mfs}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("T", b.x, ty + mfs * 0.35);
       }
     }
 
-    redrawBubbles();
-    animId = requestAnimationFrame(simStep);
+    ctx.restore();
+    requestAnimationFrame(draw);
   }
 
-  animId = requestAnimationFrame(simStep);
-
-  // Stop animation when tab switches away
-  const observer = new MutationObserver(() => {
-    if (!document.getElementById("metrics-svg")) cancelAnimationFrame(animId);
+  // Mouse handling
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - panX) / zoom;
+    const my = (e.clientY - rect.top - panY) / zoom;
+    if (panning) { panX = panOX + (e.clientX - panSX); panY = panOY + (e.clientY - panSY); return; }
+    if (dragIdx >= 0) { bubbles[dragIdx].x = mx + dragOX; bubbles[dragIdx].y = my + dragOY; bubbles[dragIdx].vx = 0; bubbles[dragIdx].vy = 0; return; }
+    hoveredIdx = -1;
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i], dx = mx - b.x, dy = my - b.y;
+      if (Math.sqrt(dx * dx + dy * dy) < b.r + 4) { hoveredIdx = i; break; }
+    }
+    canvas.style.cursor = hoveredIdx >= 0 ? "grab" : "default";
   });
-  observer.observe(container, { childList: true });
+
+  canvas.addEventListener("mousedown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - panX) / zoom;
+    const my = (e.clientY - rect.top - panY) / zoom;
+    if (e.button === 2) { panning = true; panSX = e.clientX; panSY = e.clientY; panOX = panX; panOY = panY; canvas.style.cursor = "move"; return; }
+    if (hoveredIdx >= 0) {
+      dragIdx = hoveredIdx; dragOX = bubbles[dragIdx].x - mx; dragOY = bubbles[dragIdx].y - my;
+      canvas.style.cursor = "grabbing";
+    }
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    if (panning) { panning = false; canvas.style.cursor = "default"; }
+    if (dragIdx >= 0) { canvas.style.cursor = "grab"; dragIdx = -1; }
+  });
+
+  canvas.addEventListener("mouseleave", () => { hoveredIdx = -1; dragIdx = -1; panning = false; });
+
+  canvas.addEventListener("dblclick", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - panX) / zoom;
+    const my = (e.clientY - rect.top - panY) / zoom;
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i], dx = mx - b.x, dy = my - b.y;
+      if (Math.sqrt(dx * dx + dy * dy) < b.r + 4) { drillDown(b.f.path); break; }
+    }
+  });
+
+
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Start animation
+  requestAnimationFrame(draw);
 }
+
+// ── Drill-down ──
 
 async function drillDown(filePath: string): Promise<void> {
   const detail = document.getElementById("metrics-detail");
@@ -567,13 +347,10 @@ async function drillDown(filePath: string): Promise<void> {
   detail.innerHTML = '<p class="text-muted">Loading file analysis...</p>';
 
   const d = await api<any>("/metrics/file?path=" + encodeURIComponent(filePath));
-  if (d.error) {
-    detail.innerHTML = `<p style="color:var(--danger)">${esc(d.error)}</p>`;
-    return;
-  }
+  if (d.error) { detail.innerHTML = `<p style="color:var(--danger)">${esc(d.error)}</p>`; return; }
 
   const functions = d.functions || [];
-  const warnings = d.warnings || [];
+  const maxCC = Math.max(1, ...functions.map((f: any) => f.complexity));
 
   detail.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:0.5rem;padding:1rem">
@@ -586,27 +363,20 @@ async function drillDown(filePath: string): Promise<void> {
         ${card("Total Lines", d.total_lines)}
         ${card("Classes", d.classes)}
         ${card("Functions", functions.length)}
+        ${card("Imports", d.imports ? d.imports.length : 0)}
       </div>
       ${functions.length ? `
-        <table>
-          <thead><tr><th>Function</th><th>Line</th><th>Complexity</th><th>LOC</th><th>Args</th></tr></thead>
-          <tbody>${functions.map((f: any) => `
-            <tr>
-              <td class="text-mono">${esc(f.name)}</td>
-              <td>${f.line}</td>
-              <td><span class="${f.complexity > 10 ? 'badge badge-danger' : f.complexity > 5 ? 'badge badge-warn' : 'badge badge-success'}">${f.complexity}</span></td>
-              <td>${f.loc}</td>
-              <td class="text-sm text-muted">${(f.args || []).join(", ")}</td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
+        <h4 style="font-size:0.8rem;color:var(--info);margin-bottom:0.5rem">Cyclomatic Complexity by Function</h4>
+        ${functions.sort((a: any, b: any) => b.complexity - a.complexity).map((f: any) => {
+          const pct = (f.complexity / maxCC) * 100;
+          const color = f.complexity > 10 ? "#ef4444" : f.complexity > 5 ? "#f59e0b" : "#22c55e";
+          return `<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:3px;font-size:0.75rem">
+            <div style="width:200px;flex-shrink:0;text-align:right;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</div>
+            <div style="flex:1;height:14px;background:var(--bg);border-radius:2px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${color}"></div></div>
+            <div style="width:180px;flex-shrink:0;font-family:monospace;text-align:right"><span style="color:${color}">CC:${f.complexity}</span> <span style="color:var(--muted)">${f.loc} LOC L${f.line}</span></div>
+          </div>`;
+        }).join("")}
       ` : '<p class="text-muted">No functions</p>'}
-      ${warnings.length ? `
-        <div style="margin-top:0.75rem">
-          <h4 style="font-size:0.8rem;color:var(--warn);margin-bottom:0.25rem">Warnings</h4>
-          ${warnings.map((w: any) => `<p class="text-sm" style="color:var(--warn)">Line ${w.line}: ${esc(w.message)}</p>`).join("")}
-        </div>
-      ` : ""}
     </div>
   `;
 }
@@ -615,6 +385,4 @@ function card(label: string, value: any): string {
   return `<div class="metric-card"><div class="label">${esc(label)}</div><div class="value">${esc(String(value ?? 0))}</div></div>`;
 }
 
-(window as any).__loadQuickMetrics = loadQuickMetrics;
-(window as any).__loadFullMetrics = loadFullMetrics;
 (window as any).__drillDown = drillDown;
