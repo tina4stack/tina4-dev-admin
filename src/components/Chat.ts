@@ -1,5 +1,11 @@
 import { api, esc } from "../api.js";
 
+// --- Agent port: framework port + 2000 ---
+function getAgentPort(): number {
+  const pagePort = parseInt(window.location.port, 10) || 80;
+  return pagePort + 2000;
+}
+
 // --- Settings (persisted to localStorage) ---
 interface ModelConfig {
   provider: string;
@@ -15,21 +21,38 @@ interface ChatSettings {
 }
 
 const DEFAULTS: Record<string, { model: string; url: string }> = {
-  tina4:     { model: "tina4-v1", url: "https://api.tina4.com/v1/chat/completions" },
+  tina4:     { model: "", url: "http://41.71.84.173:11437" },
   custom:    { model: "", url: "http://localhost:11434" },
   anthropic: { model: "claude-sonnet-4-20250514", url: "https://api.anthropic.com" },
   openai:    { model: "gpt-4o", url: "https://api.openai.com" },
 };
 
-function defaultConfig(provider = "tina4"): ModelConfig {
+// Tina4 Cloud uses different servers per model type — models fetched at connect time
+const TINA4_CLOUD: Record<string, { model: string; url: string }> = {
+  thinking: { model: "", url: "http://41.71.84.173:11437" },
+  vision:   { model: "", url: "http://41.71.84.173:11434" },
+  imageGen: { model: "", url: "http://41.71.84.173:11436" },
+};
+
+function defaultConfig(provider = "tina4", modelType = "thinking"): ModelConfig {
+  if (provider === "tina4" && TINA4_CLOUD[modelType]) {
+    const d = TINA4_CLOUD[modelType];
+    return { provider, model: d.model, url: d.url, apiKey: "" };
+  }
   const d = DEFAULTS[provider] || DEFAULTS.tina4;
   return { provider, model: d.model, url: d.url, apiKey: "" };
 }
 
-function migrateConfig(cfg: any): ModelConfig {
-  const merged = { ...defaultConfig(), ...(cfg || {}) };
+function migrateConfig(cfg: any, modelType = "thinking"): ModelConfig {
+  const merged = { ...defaultConfig("tina4", modelType), ...(cfg || {}) };
   // Migrate old provider names
   if (merged.provider === "ollama") merged.provider = "custom";
+  // Clear fake model names that don't exist on any server
+  if (merged.model === "tina4-v1") merged.model = "";
+  // Update Tina4 Cloud URLs if they're stale
+  if (merged.provider === "tina4" && TINA4_CLOUD[modelType]) {
+    merged.url = TINA4_CLOUD[modelType].url;
+  }
   return merged;
 }
 
@@ -37,11 +60,11 @@ function loadSettings(): ChatSettings {
   try {
     const s = JSON.parse(localStorage.getItem("tina4_chat_settings") || "{}");
     return {
-      thinking: migrateConfig(s.thinking),
-      vision: migrateConfig(s.vision),
-      imageGen: migrateConfig(s.imageGen),
+      thinking: migrateConfig(s.thinking, "thinking"),
+      vision: migrateConfig(s.vision, "vision"),
+      imageGen: migrateConfig(s.imageGen, "imageGen"),
     };
-  } catch { return { thinking: defaultConfig(), vision: defaultConfig(), imageGen: defaultConfig() }; }
+  } catch { return { thinking: defaultConfig("tina4", "thinking"), vision: defaultConfig("tina4", "vision"), imageGen: defaultConfig("tina4", "imageGen") }; }
 }
 
 function saveSettings(s: ChatSettings): void {
@@ -54,12 +77,60 @@ let settings = loadSettings();
 let chatStatus = "Idle";
 const filesChanged: string[] = [];
 
+// --- Chat history persistence ---
+interface SavedMsg {
+  role: string;
+  content: string;
+  agent?: string;
+  timestamp?: string;
+}
+
+function saveChatHistory(): void {
+  const container = document.getElementById("chat-messages");
+  if (!container) return;
+  const msgs: SavedMsg[] = [];
+  container.querySelectorAll(".chat-msg").forEach(el => {
+    const role = el.classList.contains("chat-user") ? "user" : "assistant";
+    const content = el.querySelector(".chat-msg-content")?.innerHTML || "";
+    // Skip welcome message
+    if (content.includes("Hi! I'm Tina4.")) return;
+    msgs.push({ role, content });
+  });
+  try { localStorage.setItem("tina4_chat_history", JSON.stringify(msgs)); } catch {}
+}
+
+function loadChatHistory(): void {
+  try {
+    const raw = localStorage.getItem("tina4_chat_history");
+    if (!raw) return;
+    const msgs: SavedMsg[] = JSON.parse(raw);
+    if (!msgs.length) return;
+    // Restore messages in reverse order (they are stored newest-first from prepend)
+    // Skip empty or whitespace-only messages
+    msgs.reverse().forEach(m => {
+      const content = (m.content || "").trim();
+      if (!content) return;
+      addMessage(content, m.role === "user" ? "user" : "bot");
+    });
+  } catch {}
+}
+
+function clearChatHistory(): void {
+  localStorage.removeItem("tina4_chat_history");
+  const container = document.getElementById("chat-messages");
+  if (container) {
+    container.innerHTML = `<div class="chat-msg chat-bot">Hi! I'm Tina4. Ask me to build routes, templates, models — or ask questions about your project.</div>`;
+  }
+  msgCounter = 0;
+}
+
 // --- Render ---
 export function renderChat(container: HTMLElement): void {
   container.innerHTML = `
     <div class="dev-panel-header">
       <h2>Code With Me</h2>
       <div class="flex gap-sm">
+        <button class="btn btn-sm" onclick="window.__clearChat()" title="Clear chat history">Clear</button>
         <button class="btn btn-sm" id="chat-thoughts-btn" title="Supervisor thoughts">Thoughts <span id="thoughts-dot" style="display:none;color:var(--info)">&#9679;</span></button>
         <button class="btn btn-sm" id="chat-settings-btn" title="Settings">&#9881; Settings</button>
       </div>
@@ -113,12 +184,11 @@ export function renderChat(container: HTMLElement): void {
           <fieldset style="border:1px solid var(--border);border-radius:0.375rem;padding:0.5rem 0.75rem;margin:0">
             <legend class="text-sm" style="font-weight:600;padding:0 4px">${label}</legend>
             <div style="margin-bottom:0.375rem"><label class="text-sm text-muted" style="display:block;margin-bottom:2px">Provider</label><select id="set-${key}-provider" class="input" style="width:100%"><option value="tina4">Tina4 Cloud</option><option value="custom">Custom / Local</option><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option></select></div>
-            <div style="margin-bottom:0.375rem"><label class="text-sm text-muted" style="display:block;margin-bottom:2px">URL</label><input type="text" id="set-${key}-url" class="input" style="width:100%" /></div>
+            <div id="set-${key}-url-row" style="margin-bottom:0.375rem"><label class="text-sm text-muted" style="display:block;margin-bottom:2px">URL</label><input type="text" id="set-${key}-url" class="input" style="width:100%" /></div>
             <div id="set-${key}-key-row" style="margin-bottom:0.375rem"><label class="text-sm text-muted" style="display:block;margin-bottom:2px">API Key</label><input type="password" id="set-${key}-key" class="input" placeholder="sk-..." style="width:100%" /></div>
             <button class="btn btn-sm btn-primary" id="set-${key}-connect" style="width:100%;margin-bottom:0.375rem">Connect</button>
             <div id="set-${key}-result" class="text-sm" style="min-height:1.2em;margin-bottom:0.375rem"></div>
             <div style="margin-bottom:0.375rem"><label class="text-sm text-muted" style="display:block;margin-bottom:2px">Model</label><select id="set-${key}-model" class="input" style="width:100%" disabled><option value="">-- connect first --</option></select></div>
-            <div id="set-${key}-result" class="text-sm" style="margin-top:4px;min-height:1.2em"></div>
           </fieldset>`;
           }).join("")}
         </div>
@@ -149,7 +219,15 @@ export function renderChat(container: HTMLElement): void {
   });
 
   updateSummary();
+
+  // Restore chat history from localStorage
+  loadChatHistory();
+
+  // Also try loading from agent server (more reliable, survives cross-tab)
+  loadServerHistory();
 }
+
+// Server history loading removed — localStorage is sufficient and works offline
 
 // --- Modal ---
 function fillSection(key: string, cfg: ModelConfig): void {
@@ -162,7 +240,7 @@ function fillSection(key: string, cfg: ModelConfig): void {
   }
   (document.getElementById(`set-${key}-url`) as HTMLInputElement).value = cfg.url;
   (document.getElementById(`set-${key}-key`) as HTMLInputElement).value = cfg.apiKey;
-  toggleKeyVisibility(key, cfg.provider);
+  toggleFieldVisibility(key, cfg.provider);
 }
 
 function readSection(key: string): ModelConfig {
@@ -174,32 +252,50 @@ function readSection(key: string): ModelConfig {
   };
 }
 
-function toggleKeyVisibility(key: string, _provider: string): void {
-  // API key always visible — just don't send it if empty
-  const row = document.getElementById(`set-${key}-key-row`);
-  if (row) row.style.display = "block";
+function toggleFieldVisibility(key: string, provider: string): void {
+  const keyRow = document.getElementById(`set-${key}-key-row`);
+  const urlRow = document.getElementById(`set-${key}-url-row`);
+  if (provider === "tina4") {
+    // Tina4 Cloud — hide URL and API key, they're pre-configured
+    if (keyRow) keyRow.style.display = "none";
+    if (urlRow) urlRow.style.display = "none";
+  } else {
+    if (keyRow) keyRow.style.display = "block";
+    if (urlRow) urlRow.style.display = "block";
+  }
 }
 
 function wireProviderChange(key: string): void {
   const sel = document.getElementById(`set-${key}-provider`) as HTMLSelectElement;
   sel?.addEventListener("change", () => {
-    const d = DEFAULTS[sel.value] || DEFAULTS.tina4;
+    // For Tina4 Cloud, use per-model-type URLs
+    let d: { model: string; url: string };
+    if (sel.value === "tina4" && TINA4_CLOUD[key]) {
+      d = TINA4_CLOUD[key];
+    } else {
+      d = DEFAULTS[sel.value] || DEFAULTS.tina4;
+    }
     const modelSel = document.getElementById(`set-${key}-model`) as HTMLSelectElement;
-    modelSel.innerHTML = `<option value="${d.model}">${d.model}</option>`;
+    modelSel.innerHTML = d.model ? `<option value="${d.model}">${d.model}</option>` : `<option value="">-- connect first --</option>`;
     modelSel.value = d.model;
     (document.getElementById(`set-${key}-url`) as HTMLInputElement).value = d.url;
-    toggleKeyVisibility(key, sel.value);
+    toggleFieldVisibility(key, sel.value);
   });
   // Initial visibility
-  toggleKeyVisibility(key, sel?.value || "custom");
+  toggleFieldVisibility(key, sel?.value || "custom");
 }
 
 async function connectProvider(key: string): Promise<void> {
   const provider = (document.getElementById(`set-${key}-provider`) as HTMLSelectElement)?.value || "custom";
-  const url = (document.getElementById(`set-${key}-url`) as HTMLInputElement)?.value || "";
+  let url = (document.getElementById(`set-${key}-url`) as HTMLInputElement)?.value || "";
   const apiKey = (document.getElementById(`set-${key}-key`) as HTMLInputElement)?.value || "";
   const modelSel = document.getElementById(`set-${key}-model`) as HTMLSelectElement;
   const resultEl = document.getElementById(`set-${key}-result`);
+
+  // For Tina4 Cloud, use the pre-configured URL (hidden from user)
+  if (provider === "tina4" && TINA4_CLOUD[key]) {
+    url = TINA4_CLOUD[key].url;
+  }
 
   if (resultEl) { resultEl.textContent = "Connecting..."; resultEl.style.color = "var(--muted)"; }
 
@@ -210,14 +306,19 @@ async function connectProvider(key: string): Promise<void> {
     const baseUrl = url.replace(/\/(v1|api)\/.*$/, "").replace(/\/+$/, "");
 
     if (provider === "tina4") {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      // Tina4 Cloud runs Ollama — fetch models via /api/tags then /v1/models
       try {
-        const res = await fetch(`${baseUrl}/v1/models`, { headers });
+        const res = await fetch(`${baseUrl}/api/tags`);
         const data = await res.json();
-        models = (data.data || []).map((m: any) => m.id);
+        models = (data.models || []).map((m: any) => m.name || m.model);
       } catch {}
-      if (!models.length) models = ["tina4-v1"];
+      if (!models.length) {
+        try {
+          const res = await fetch(`${baseUrl}/v1/models`);
+          const data = await res.json();
+          models = (data.data || []).map((m: any) => m.id);
+        } catch {}
+      }
     } else if (provider === "custom") {
       try {
         const res = await fetch(`${baseUrl}/api/tags`);
@@ -354,8 +455,31 @@ function addMessage(html: string, role: "user" | "bot"): void {
     if (submitBtn) submitBtn.style.display = "inline-block";
   }
 
+  // Add quick-reply buttons when bot asks a question (ends with ?)
+  if (role === "bot") {
+    const text = div.querySelector(".chat-msg-content")?.textContent || "";
+    const endsWithQuestion = text.trim().endsWith("?");
+    const hasInputs = div.querySelector(".chat-answer-input");
+    if (endsWithQuestion && !hasInputs) {
+      const quickBtns = document.createElement("div");
+      quickBtns.style.cssText = "display:flex;gap:4px;margin-top:6px;flex-wrap:wrap";
+      quickBtns.className = "chat-quick-replies";
+      quickBtns.innerHTML = `
+        <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px" onclick="window.__quickReply('Yes')">Yes</button>
+        <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px" onclick="window.__quickReply('No')">No</button>
+        <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px" onclick="window.__quickReply('You decide')">You decide</button>
+        <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px" onclick="window.__quickReply('Skip')">Skip</button>
+        <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px" onclick="window.__quickReply('Just build it')">Just build it</button>
+      `;
+      div.querySelector(".chat-msg-content")?.appendChild(quickBtns);
+    }
+  }
+
   // Prepend — latest message always at the top
   container.prepend(div);
+
+  // Auto-save chat history to localStorage
+  saveChatHistory();
 }
 
 function submitAnswers(msgId: string): void {
@@ -555,8 +679,21 @@ setInterval(async () => {
 (window as any).__submitComment = submitComment;
 (window as any).__getChecklist = getChecklist;
 
+function quickReply(answer: string): void {
+  // Remove all quick-reply buttons from all messages
+  document.querySelectorAll(".chat-quick-replies").forEach(el => el.remove());
+  // Send as message
+  const input = document.getElementById("chat-input") as HTMLTextAreaElement;
+  if (input) {
+    input.value = answer;
+    sendChat();
+  }
+}
+
+(window as any).__quickReply = quickReply;
 (window as any).__copyMsg = copyMsg;
 (window as any).__replyMsg = replyMsg;
+(window as any).__clearChat = clearChatHistory;
 
 // Status log entries for the right panel
 const statusLog: { time: string; text: string; agent: string }[] = [];
@@ -612,7 +749,7 @@ async function sendChat(): Promise<void> {
   }
 
   try {
-    // SSE via fetch + ReadableStream
+    // Route through the framework proxy (/__dev/api/chat → agent:9145/chat)
     const response = await fetch("/__dev/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -620,7 +757,8 @@ async function sendChat(): Promise<void> {
     });
 
     if (!response.ok || !response.body) {
-      addMessage(`<span style="color:var(--danger)">Error: ${response.statusText}</span>`, "bot");
+      const errMsg = response.status === 0 ? "Agent not running. Start: tina4 agent" : `Error: ${response.status}`;
+      addMessage(`<span style="color:var(--danger)">${errMsg}</span>`, "bot");
       chatStatus = "Error";
       updateSummary();
       return;
@@ -698,24 +836,38 @@ function handleSSEEvent(event: string, data: any): void {
       break;
     }
 
-    case "plan":
-      // Show approve button + submit feedback
+    case "plan": {
+      // Plan content + approval buttons in ONE message
+      let planHtml = "";
+
+      // Render plan content if present
+      if (data.content) {
+        planHtml += formatChat(data.content);
+      }
+
+      // Add approval buttons below the plan
       if (data.approve) {
-        const planHtml = `
-          <div style="padding:0.5rem;background:var(--surface);border:1px solid var(--info);border-radius:0.375rem;margin-top:0.25rem">
-            <div class="text-sm" style="color:var(--info);font-weight:600;margin-bottom:0.25rem">Plan ready: ${esc(data.file || "")}</div>
-            <div class="text-sm text-muted" style="margin-bottom:0.5rem">Uncheck items you don't want. Click + to add comments. Then choose an action.</div>
+        planHtml += `
+          <div style="padding:0.5rem;background:var(--surface);border:1px solid var(--info);border-radius:0.375rem;margin-top:0.75rem">
+            <div class="text-sm text-muted" style="margin-bottom:0.5rem">Uncheck items you don't want. Click + to add comments.</div>
             <div class="flex gap-sm" style="flex-wrap:wrap">
-              <button class="btn btn-sm" onclick="window.__submitFeedback()">Submit Feedback</button>
-              <button class="btn btn-sm btn-primary" onclick="window.__approvePlan('${esc(data.file || "")}')">Approve & Execute</button>
-              <button class="btn btn-sm" onclick="window.__keepPlan('${esc(data.file || "")}');this.parentElement.parentElement.remove()">Keep for Later</button>
-              <button class="btn btn-sm" onclick="this.parentElement.parentElement.remove()">Dismiss</button>
+              <button class="btn btn-sm btn-primary" onclick="window.__approvePlan('${esc(data.file || "")}')">Approve & Build</button>
+              <button class="btn btn-sm" onclick="window.__submitFeedback()">Give Feedback</button>
+              <button class="btn btn-sm" onclick="window.__keepPlan('${esc(data.file || "")}')">Later</button>
+              <button class="btn btn-sm" onclick="this.closest('.chat-msg').remove()">Dismiss</button>
             </div>
           </div>
         `;
-        addMessage(planHtml, "bot");
       }
+
+      // Show agent badge
+      if (data.agent && data.agent !== "supervisor") {
+        planHtml = `<span class="badge" style="font-size:0.6rem;margin-right:4px">${esc(data.agent)}</span>` + planHtml;
+      }
+
+      addMessage(planHtml, "bot");
       break;
+    }
 
     case "error":
       hideStatusBar();
@@ -723,6 +875,24 @@ function handleSSEEvent(event: string, data: any): void {
       chatStatus = "Error";
       updateSummary();
       break;
+
+    case "plan_failed": {
+      // Show Resume button when execution fails mid-plan
+      const done = data.completed || 0;
+      const tot = data.total || 0;
+      const failedStep = data.failed_step || 0;
+      const resumeHtml = `
+        <div style="padding:0.5rem;background:var(--surface);border:1px solid var(--warn);border-radius:0.375rem;margin-top:0.25rem">
+          <div class="text-sm" style="margin-bottom:0.5rem">${done} of ${tot} steps completed. Failed at step ${failedStep}.</div>
+          <div class="flex gap-sm">
+            <button class="btn btn-sm btn-primary" onclick="window.__resumePlan('${esc(data.file || "")}')">Resume</button>
+            <button class="btn btn-sm" onclick="this.closest('.chat-msg').remove()">Dismiss</button>
+          </div>
+        </div>
+      `;
+      addMessage(resumeHtml, "bot");
+      break;
+    }
 
     case "done":
       chatStatus = "Done";
@@ -734,13 +904,14 @@ function handleSSEEvent(event: string, data: any): void {
 }
 
 async function approvePlan(planFile: string): Promise<void> {
-  addMessage(`<span style="color:var(--success)">Plan approved: ${esc(planFile)}</span>`, "user");
+  addMessage(`<span style="color:var(--success)">Plan approved — let's build it!</span>`, "user");
   chatStatus = "Executing plan...";
-  addStatus("Plan approved — executing...", "supervisor");
+  addStatus("Plan approved — building...", "supervisor");
+  showStatusBar("Building...");
 
-  // Send approval to agent which will delegate to coder
+  // Go directly to /execute — bypass the supervisor LLM
   const body = {
-    message: `Execute the plan in ${planFile}. Write all the files now.`,
+    plan_file: planFile,
     settings: {
       thinking: settings.thinking,
       vision: settings.vision,
@@ -749,7 +920,7 @@ async function approvePlan(planFile: string): Promise<void> {
   };
 
   try {
-    const response = await fetch("/__dev/api/chat", {
+    const response = await fetch("/__dev/api/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -801,6 +972,51 @@ function submitFeedback(): void {
   }
 }
 
+async function resumePlan(planFile: string): Promise<void> {
+  addMessage(`<span style="color:var(--info)">Resuming plan...</span>`, "user");
+  chatStatus = "Resuming...";
+  showStatusBar("Resuming...");
+
+  const body = {
+    plan_file: planFile,
+    resume: true,
+    settings: {
+      thinking: settings.thinking,
+      vision: settings.vision,
+      imageGen: settings.imageGen,
+    },
+  };
+
+  try {
+    const response = await fetch("/__dev/api/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok || !response.body) return;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      let currentEvent = "";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) currentEvent = line.slice(7).trim();
+        else if (line.startsWith("data: ")) {
+          try { handleSSEEvent(currentEvent, JSON.parse(line.slice(6))); } catch {}
+        }
+      }
+    }
+  } catch {
+    addMessage(`<span style="color:var(--danger)">Resume failed</span>`, "bot");
+  }
+}
+
+(window as any).__resumePlan = resumePlan;
 (window as any).__submitFeedback = submitFeedback;
 (window as any).__approvePlan = approvePlan;
 (window as any).__keepPlan = keepPlan;

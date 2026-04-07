@@ -6,6 +6,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Chat/agent calls go to the Rust agent server
+      "/__dev/api/execute": {
+        target: "http://localhost:9145",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace("/__dev/api/execute", "/execute"),
+      },
       "/__dev/api/chat": {
         target: "http://localhost:9145",
         changeOrigin: true,

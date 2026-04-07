@@ -107,9 +107,9 @@ tr:hover { background: rgba(255,255,255,0.03); }
 
 .chat-container { display: flex; flex-direction: column; height: calc(100vh - 140px); }
 .chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; }
-.chat-msg { padding: 0.5rem 0.75rem; border-radius: 0.5rem; margin-bottom: 0.5rem; font-size: 0.85rem; line-height: 1.5; max-width: 85%; }
-.chat-user { background: var(--primary); color: white; margin-left: auto; }
-.chat-bot { background: var(--surface); border: 1px solid var(--border); }
+.chat-msg { padding: 0.5rem 0.75rem; border-radius: 0.5rem; margin-bottom: 0.25rem; font-size: 0.85rem; line-height: 1.5; max-width: 85%; }
+.chat-user { background: var(--primary); color: white; margin-left: auto; font-size: 0.8rem; padding: 0.35rem 0.65rem; max-width: 60%; border-radius: 0.5rem 0.5rem 0.15rem 0.5rem; }
+.chat-bot { background: var(--surface); border: 1px solid var(--border); margin-bottom: 0.15rem; }
 .chat-input-row { display: flex; gap: 0.5rem; padding: 0.75rem; border-top: 1px solid var(--border); }
 .chat-input-row input { flex: 1; }
 
