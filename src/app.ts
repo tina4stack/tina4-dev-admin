@@ -5,6 +5,7 @@ import { renderDatabase } from "./components/Database.js";
 import { renderErrors } from "./components/Errors.js";
 import { renderSystem } from "./components/System.js";
 import { renderMetrics } from "./components/Metrics.js";
+import { renderGraphQL } from "./components/GraphQL.js";
 import { renderChat } from "./components/Chat.js";
 // Thoughts is embedded in Code With Me, not a separate tab
 
@@ -22,6 +23,7 @@ type TabDef = { id: string; label: string; render: (el: HTMLElement) => void };
 const baseTabs: TabDef[] = [
   { id: "routes", label: "Routes", render: renderRoutes },
   { id: "database", label: "Database", render: renderDatabase },
+  { id: "graphql", label: "GraphQL", render: renderGraphQL },
   { id: "errors", label: "Errors", render: renderErrors },
   { id: "metrics", label: "Metrics", render: renderMetrics },
   { id: "system", label: "System", render: renderSystem },
