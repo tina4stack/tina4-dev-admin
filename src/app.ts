@@ -1,4 +1,5 @@
 // Tina4 Dev Admin — Unified SPA
+import { api, esc } from "./api.js";
 import { getTheme, applyTheme, CSS } from "./styles/theme.js";
 import { renderRoutes } from "./components/Routes.js";
 import { renderDatabase } from "./components/Database.js";
@@ -6,6 +7,7 @@ import { renderErrors } from "./components/Errors.js";
 import { renderSystem } from "./components/System.js";
 import { renderMetrics } from "./components/Metrics.js";
 import { renderGraphQL } from "./components/GraphQL.js";
+import { renderQueue } from "./components/Queue.js";
 import { renderChat } from "./components/Chat.js";
 // Thoughts is embedded in Code With Me, not a separate tab
 
@@ -24,6 +26,7 @@ const baseTabs: TabDef[] = [
   { id: "routes", label: "Routes", render: renderRoutes },
   { id: "database", label: "Database", render: renderDatabase },
   { id: "graphql", label: "GraphQL", render: renderGraphQL },
+  { id: "queue", label: "Queue", render: renderQueue },
   { id: "errors", label: "Errors", render: renderErrors },
   { id: "metrics", label: "Metrics", render: renderMetrics },
   { id: "system", label: "System", render: renderSystem },
@@ -44,7 +47,7 @@ function renderApp(): void {
       <div class="dev-header">
         <h1><span>Tina4</span> Dev Admin</h1>
         <div style="display:flex;align-items:center;gap:0.75rem">
-          <span class="text-sm text-muted" id="version-label" style="cursor:default;user-select:none">${theme.name} &bull; v3.10.70</span>
+          <span class="text-sm text-muted" id="version-label" style="cursor:default;user-select:none">${theme.name} &bull; loading&hellip;</span>
           <button class="btn btn-sm" onclick="window.__closeDevAdmin()" title="Close Dev Admin" style="font-size:14px;width:28px;height:28px;padding:0;line-height:1">&times;</button>
         </div>
       </div>
@@ -102,6 +105,19 @@ function closeDevAdmin(): void {
 
 // Boot
 renderApp();
+
+// Fetch version from backend
+api<{ version?: string }>("/system")
+  .then(d => {
+    const label = document.getElementById("version-label");
+    if (label && d.version) {
+      label.innerHTML = `${theme.name} &bull; v${esc(d.version)}`;
+    }
+  })
+  .catch(() => {
+    const label = document.getElementById("version-label");
+    if (label) label.innerHTML = `${theme.name}`;
+  });
 
 // Easter egg: 5 clicks on version label unlocks Code With Me
 let unlockClicks = 0;

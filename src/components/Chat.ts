@@ -1123,7 +1123,7 @@ function formatChat(text: string): string {
   const codeBlocks: string[] = [];
   t = t.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
     const idx = codeBlocks.length;
-    codeBlocks.push(`<pre style="background:var(--bg);padding:0.75rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.75rem;border:1px solid var(--border)"><code>${code}</code></pre>`);
+    codeBlocks.push(`<pre style="background:var(--bg);padding:0.75rem;border-radius:0.375rem;overflow-x:auto;margin:0.5rem 0;font-size:0.75rem;border:1px solid var(--border)"><code>${esc(code)}</code></pre>`);
     return `\x00CODE${idx}\x00`;
   });
 
@@ -1138,9 +1138,9 @@ function formatChat(text: string): string {
     if (trimmed.startsWith("\x00CODE")) { result.push(trimmed); continue; }
 
     // Headers
-    if (trimmed.startsWith("### ")) { result.push(`<div style="font-weight:700;font-size:0.8rem;margin:0.75rem 0 0.25rem;color:var(--info)">${trimmed.slice(4)}</div>`); continue; }
-    if (trimmed.startsWith("## ")) { result.push(`<div style="font-weight:700;font-size:0.9rem;margin:0.75rem 0 0.25rem">${trimmed.slice(3)}</div>`); continue; }
-    if (trimmed.startsWith("# ")) { result.push(`<div style="font-weight:700;font-size:1rem;margin:0.75rem 0 0.25rem">${trimmed.slice(2)}</div>`); continue; }
+    if (trimmed.startsWith("### ")) { result.push(`<div style="font-weight:700;font-size:0.8rem;margin:0.75rem 0 0.25rem;color:var(--info)">${esc(trimmed.slice(4))}</div>`); continue; }
+    if (trimmed.startsWith("## ")) { result.push(`<div style="font-weight:700;font-size:0.9rem;margin:0.75rem 0 0.25rem">${esc(trimmed.slice(3))}</div>`); continue; }
+    if (trimmed.startsWith("# ")) { result.push(`<div style="font-weight:700;font-size:1rem;margin:0.75rem 0 0.25rem">${esc(trimmed.slice(2))}</div>`); continue; }
 
     // Horizontal rule
     if (trimmed === "---" || trimmed === "***") { result.push('<hr style="border:none;border-top:1px solid var(--border);margin:0.5rem 0">'); continue; }
@@ -1199,7 +1199,8 @@ function formatChat(text: string): string {
 }
 
 function inlineFormat(text: string): string {
-  return text
+  // Escape HTML first to prevent XSS, then apply markdown formatting
+  return esc(text)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:0.1rem 0.3rem;border-radius:0.2rem;font-size:0.8em;border:1px solid var(--border)">$1</code>');

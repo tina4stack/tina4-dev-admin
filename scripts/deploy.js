@@ -6,10 +6,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = resolve(__dirname, "../dist/tina4-dev-admin.js");
 
 const targets = [
-  "../tina4-python/tina4_python/public/js/tina4-dev-admin.js",
-  "../tina4-php/src/public/js/tina4-dev-admin.js",
-  "../tina4-ruby/lib/tina4/public/js/tina4-dev-admin.js",
-  "../tina4-nodejs/packages/core/public/js/tina4-dev-admin.js",
+  "../../tina4-python/tina4_python/public/js/tina4-dev-admin.js",
+  "../../tina4-php/src/public/js/tina4-dev-admin.js",
+  "../../tina4-ruby/lib/tina4/public/js/tina4-dev-admin.js",
+  "../../tina4-nodejs/packages/core/public/js/tina4-dev-admin.js",
 ];
 
 if (!existsSync(src)) {
