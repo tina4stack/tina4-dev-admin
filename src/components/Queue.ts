@@ -110,7 +110,7 @@ async function loadQueue(): Promise<void> {
             <tr>
               <td style="font-family:var(--mono);font-size:0.65rem">${esc(String(job.id || "").slice(0, 8))}</td>
               <td style="text-align:center">${statusBadge(job.status)}</td>
-              <td><code style="font-size:0.7rem;word-break:break-all;max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${esc(JSON.stringify(job.data || {}, null, 2))}" onclick="alert(this.title)">${esc(JSON.stringify(job.data || {}).slice(0, 80))}</code></td>
+              <td><code style="font-size:0.7rem;word-break:break-all;max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${esc(JSON.stringify(job.data || {}, null, 2))}" onclick="window.__queueExpandPayload(this)">${esc(JSON.stringify(job.data || {}).slice(0, 80))}</code></td>
               <td style="color:var(--danger);font-size:0.7rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(job.error || "")}">${esc(job.error || "-")}</td>
               <td style="text-align:center">
                 ${job.status === "failed" || job.status === "dead_letter" ? `<button class="btn btn-sm" style="font-size:0.65rem;padding:2px 6px" onclick="window.__queueReplay('${esc(String(job.id))}')">Retry</button>` : ""}
@@ -165,7 +165,7 @@ async function loadDeadLetters(): Promise<void> {
           ${data.jobs.map((job: any) => `
             <tr>
               <td style="font-family:var(--mono);font-size:0.65rem">${esc(String(job.id || "").slice(0, 8))}</td>
-              <td><code style="font-size:0.7rem;word-break:break-all;max-width:250px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${esc(JSON.stringify(job.data || {}, null, 2))}" onclick="alert(this.title)">${esc(JSON.stringify(job.data || {}).slice(0, 60))}</code></td>
+              <td><code style="font-size:0.7rem;word-break:break-all;max-width:250px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${esc(JSON.stringify(job.data || {}, null, 2))}" onclick="window.__queueExpandPayload(this)">${esc(JSON.stringify(job.data || {}).slice(0, 60))}</code></td>
               <td style="color:var(--danger);font-size:0.7rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(job.error || "")}">${esc(job.error || "")}</td>
               <td style="text-align:center">${job.retries || job.attempts || 0}</td>
               <td style="text-align:center">
@@ -192,6 +192,21 @@ function statusBadge(status: string): string {
   };
   return `<span class="badge" style="background:${colors[status] || "var(--muted)"};font-size:0.65rem">${esc(status)}</span>`;
 }
+
+// Payload expand — toggles a <pre> block below the clicked row
+(window as any).__queueExpandPayload = (el: HTMLElement) => {
+  const row = el.closest("tr");
+  if (!row) return;
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains("queue-payload-row")) {
+    existing.remove();
+    return;
+  }
+  const payloadRow = document.createElement("tr");
+  payloadRow.className = "queue-payload-row";
+  payloadRow.innerHTML = `<td colspan="5" style="padding:0.5rem 1rem;background:rgba(0,0,0,0.3)"><pre style="margin:0;font-size:0.75rem;white-space:pre-wrap;color:var(--text);max-height:300px;overflow:auto">${esc(el.title)}</pre></td>`;
+  row.after(payloadRow);
+};
 
 // Global handlers
 (window as any).__queueTopic = (topic: string) => {
