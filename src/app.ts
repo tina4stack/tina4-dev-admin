@@ -107,11 +107,15 @@ function closeDevAdmin(): void {
 renderApp();
 
 // Fetch version from backend
-api<{ version?: string }>("/system")
+api<any>("/system")
   .then(d => {
     const label = document.getElementById("version-label");
-    if (label && d.version) {
-      label.innerHTML = `${theme.name} &bull; v${esc(d.version)}`;
+    // PHP: d.framework.version, Python: d.framework string, fallback: d.version
+    const ver = d.version
+      || (typeof d.framework === "object" ? d.framework.version : null)
+      || (typeof d.framework === "string" ? d.framework : null);
+    if (label && ver) {
+      label.innerHTML = `${theme.name} &bull; v${esc(ver)}`;
     }
   })
   .catch(() => {
