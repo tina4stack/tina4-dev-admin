@@ -127,7 +127,7 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
 
   // Build edges from dependency graph
   const edges: [number, number][] = [];
-  function basename(p: string): string { const n = p.split("/").pop() || ""; const d = n.lastIndexOf("."); return (d > 0 ? n.substring(0, d) : n).toLowerCase(); }
+  function basename(p: string): string { const n = p.replace(/\\/g, "/").split("/").pop() || ""; const d = n.lastIndexOf("."); return (d > 0 ? n.substring(0, d) : n).toLowerCase(); }
   const nameIdx: Record<string, number> = {};
   bubbles.forEach((b, i) => { nameIdx[basename(b.f.path)] = i; });
   for (const [src, deps] of Object.entries(depGraph)) {
