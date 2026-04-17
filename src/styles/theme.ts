@@ -52,9 +52,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .dev-tab:hover { color: var(--text); }
 .dev-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.dev-content { flex: 1; overflow-y: auto; }
+.dev-content { flex: 1; overflow-y: auto; min-height: 0; }
 .dev-panel { padding: 1rem; display: none; }
 .dev-panel.active { display: block; }
+.fullscreen-editor .dev-content { overflow: hidden; position: relative; }
+.fullscreen-editor .dev-panel.active { padding: 0; display: block; position: absolute; inset: 0; }
 .dev-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
 .dev-panel-header h2 { font-size: 0.95rem; font-weight: 600; }
 

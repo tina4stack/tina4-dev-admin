@@ -8,8 +8,8 @@ import { renderSystem } from "./components/System.js";
 import { renderMetrics } from "./components/Metrics.js";
 import { renderGraphQL } from "./components/GraphQL.js";
 import { renderQueue } from "./components/Queue.js";
-import { renderChat } from "./components/Chat.js";
-// Thoughts is embedded in Code With Me, not a separate tab
+import { renderEditor } from "./components/Editor.js";
+// AI Chat is now embedded in the Code With Me editor panel
 
 // Inject global styles
 const style = document.createElement("style");
@@ -32,11 +32,10 @@ const baseTabs: TabDef[] = [
   { id: "system", label: "System", render: renderSystem },
 ];
 
-const chatTab: TabDef = { id: "chat", label: "Code With Me", render: renderChat };
+const editorTab: TabDef = { id: "editor", label: "Code With Me", render: renderEditor };
 
-let chatUnlocked = localStorage.getItem("tina4_cwm_unlocked") === "true";
-let tabs: TabDef[] = chatUnlocked ? [chatTab, ...baseTabs] : [...baseTabs];
-let activeTab = chatUnlocked ? "chat" : "routes";
+let tabs: TabDef[] = [editorTab, ...baseTabs];
+let activeTab = "editor";
 
 function renderApp(): void {
   const app = document.getElementById("app");
@@ -68,6 +67,16 @@ function renderApp(): void {
 
 function switchTab(id: string): void {
   activeTab = id;
+
+  // Full-screen mode for editor — hide header and tab bar
+  const header = document.querySelector(".dev-header") as HTMLElement;
+  const tabBar = document.getElementById("tab-bar") as HTMLElement;
+  const adminEl = document.querySelector(".dev-admin") as HTMLElement;
+  const isFullscreen = (id === "editor");
+
+  if (header) header.style.display = isFullscreen ? "none" : "";
+  if (tabBar) tabBar.style.display = isFullscreen ? "none" : "";
+  if (adminEl) adminEl.classList.toggle("fullscreen-editor", isFullscreen);
 
   // Update tab buttons
   document.querySelectorAll(".dev-tab").forEach(btn => {
@@ -123,29 +132,4 @@ api<any>("/system")
     if (label) label.innerHTML = `${theme.name}`;
   });
 
-// Easter egg: 5 clicks on version label unlocks Code With Me
-let unlockClicks = 0;
-let unlockTimer: ReturnType<typeof setTimeout> | null = null;
-
-document.getElementById("version-label")?.addEventListener("click", () => {
-  if (chatUnlocked) return;
-  unlockClicks++;
-  if (unlockTimer) clearTimeout(unlockTimer);
-  unlockTimer = setTimeout(() => { unlockClicks = 0; }, 2000);
-
-  if (unlockClicks >= 5) {
-    chatUnlocked = true;
-    localStorage.setItem("tina4_cwm_unlocked", "true");
-    tabs = [chatTab, ...baseTabs];
-    activeTab = "chat";
-
-    // Re-render tab bar
-    const tabBar = document.getElementById("tab-bar");
-    if (tabBar) {
-      tabBar.innerHTML = tabs.map(t =>
-        `<button class="dev-tab ${t.id === activeTab ? "active" : ""}" data-tab="${t.id}" onclick="window.__switchTab('${t.id}')">${t.label}</button>`
-      ).join("");
-    }
-    switchTab("chat");
-  }
-});
+// Easter egg removed — Code With Me is always available in dev mode.

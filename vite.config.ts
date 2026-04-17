@@ -33,7 +33,7 @@ export default defineConfig({
       },
       // All other dev admin API calls go to the framework backend
       "/__dev/api": {
-        target: "http://localhost:7145",
+        target: "http://localhost:7200",
         changeOrigin: true,
       },
     },
