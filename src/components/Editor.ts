@@ -1187,25 +1187,27 @@ function updateStatusBar(msg?: string, isError?: boolean): void {
 
 // ── Pop out ──
 function popOut(): void {
-  const w = window.open("", "tina4-editor", "width=1400,height=900,menubar=no,toolbar=no,status=no");
-  if (!w) return;
-
-  w.document.write(`<!DOCTYPE html>
-<html><head>
-<title>Tina4 — Code With Me</title>
-<style>${getEditorCSS()}</style>
-</head><body>
-<div id="app" style="height:100vh"></div>
-<script type="module">
-  // Re-import and render into the new window
-  import("${window.location.origin}/@fs/${import.meta.url.replace(/^.*?\/src\//, "src/")}").then(m => {
-    // Won't work cross-origin — fallback: redirect
-  }).catch(() => {
-    document.getElementById("app").innerHTML = '<div style="padding:2rem;color:#cdd6f4"><h2>Code With Me</h2><p>Pop-out editor loading...</p></div>';
-    window.location = window.opener.location.origin + "/__dev#editor";
-  });
-</script>
-</body></html>`);
+  // Earlier versions tried to re-bootstrap the SPA inside the popup
+  // by re-importing Editor.ts via Vite's /@fs/ shim. That only works
+  // during `npm run dev` — in the deployed (composer install) bundle
+  // the @fs path doesn't exist, the import rejects silently, and the
+  // new window stays blank. Users clicked the button and nothing
+  // happened.
+  //
+  // Simpler + working: open the same dev-admin URL in a new tab.
+  // The existing SPA bootstraps itself from scratch there, the user
+  // gets a second editor instance, localStorage keeps each tab's
+  // workspace state separate because open files are scoped to the
+  // page. Zero moving parts.
+  const adminUrl = `${window.location.origin}/__dev`;
+  const win = window.open(adminUrl, "_blank", "noopener,noreferrer");
+  if (!win) {
+    // Popup blocker fired — fall back to a nav hint the user can
+    // dismiss. Better than silent failure.
+    alert(
+      "Couldn't open a new dev-admin window. Your browser's popup blocker may be active — allow popups for this site, or open /__dev manually in a new tab.",
+    );
+  }
 }
 
 // ── Styles ──
