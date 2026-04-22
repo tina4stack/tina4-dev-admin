@@ -1,47 +1,64 @@
 import { defineConfig } from "vite";
 import { resolve } from "path";
 
+// Target a specific tina4 backend when running `npm run dev`. The
+// defaults match the Python stack (`tina4 serve` in tina4-fresh-python)
+// but any framework works:
+//   PHP:    TINA4_BACKEND=http://localhost:7145 TINA4_AGENT=http://localhost:9145 npm run dev
+//   Python: TINA4_BACKEND=http://localhost:7202 TINA4_AGENT=http://localhost:9202 npm run dev
+//   Ruby:   TINA4_BACKEND=http://localhost:7147 TINA4_AGENT=http://localhost:9147 npm run dev
+//   Node:   TINA4_BACKEND=http://localhost:7148 TINA4_AGENT=http://localhost:9148 npm run dev
+//
+// Rule of thumb (matches `tina4 serve` CLI convention): agent port =
+// framework port + 2000.
+const backend = process.env.TINA4_BACKEND || "http://localhost:7202";
+const agent   = process.env.TINA4_AGENT   || "http://localhost:9202";
+
 export default defineConfig({
   server: {
     port: 5173,
     proxy: {
       // Chat/agent calls go to the Rust agent server
       "/__dev/api/execute": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/execute", "/execute"),
       },
       "/__dev/api/chat": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/chat", "/chat"),
       },
       "/__dev/api/thoughts": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/thoughts", "/thoughts"),
       },
       "/__dev/api/agents": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/agents", "/agents"),
       },
       "/__dev/api/history": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/history", "/history"),
       },
       // Supervisor session lifecycle — git worktree + branch management.
-      // create/diff/commit/cancel/sessions all live on the Rust side;
-      // the prefix strips to /supervise/* before the rewrite lands.
       "/__dev/api/supervise": {
-        target: "http://localhost:9200",
+        target: agent,
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/supervise", "/supervise"),
       },
       // All other dev admin API calls go to the framework backend
       "/__dev/api": {
-        target: "http://localhost:7200",
+        target: backend,
+        changeOrigin: true,
+      },
+      // Live-reload WebSocket — framework owns it at /__dev_reload
+      "/__dev_reload": {
+        target: backend,
+        ws: true,
         changeOrigin: true,
       },
       // ── Five-model stack on andrevanzuydam.com (41.71.84.173) ─────

@@ -520,12 +520,15 @@ let _lastMtime = 0;
 let _reloadSocket: WebSocket | null = null;
 
 function startLiveReloadWatcher(): void {
-  // WebSocket path — dev server serves WS on the same origin at /__dev_reload
+  // WebSocket URL — always point at the page's own origin. The
+  // framework (PHP / Python / Ruby / Node) serves `/__dev_reload`
+  // on the same host:port as the SPA itself, so reusing
+  // `location.host` keeps the client framework-agnostic and
+  // port-agnostic. Previously we hardcoded `:7200` (the rust CLI's
+  // dev-proxy port) which broke every framework where the CLI
+  // wasn't in front of the server.
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
-  // Vite rewrites `/__dev/*` HTTP requests to the framework on :7200
-  // but WebSocket upgrade isn't in our proxy table. Hit the framework
-  // directly — localhost-only in dev anyway.
-  const wsUrl = `${wsProto}://${location.hostname}:7200/__dev_reload`;
+  const wsUrl = `${wsProto}://${location.host}/__dev_reload`;
   try {
     _reloadSocket = new WebSocket(wsUrl);
     _reloadSocket.addEventListener("message", (ev) => {
@@ -3024,6 +3027,69 @@ function extractPathHint(code: string): { path: string | null; rest: string } {
   return { path: null, rest: code };
 }
 
+/** Minimal markdown → HTML pass for rendering ```markdown``` fenced
+ *  blocks as formatted prose in chat bubbles. Intentionally tiny — we
+ *  only care about the constructs the coding LLMs actually emit in
+ *  plans: ATX headings, ordered/unordered lists (with two-space
+ *  indented sub-items), bold, italic, and inline code. Anything we
+ *  don't recognise falls through as escaped text, so malformed input
+ *  is safe. The caller keeps the raw markdown in `aiCodeBlocks` so
+ *  Copy/Apply still write the untouched source. */
+function renderMarkdownInline(md: string): string {
+  const inline = (s: string): string =>
+    esc(s)
+      .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.3);padding:0.1rem 0.3rem;border-radius:0.2rem">$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let subOpen = false;
+  const closeSub = () => { if (subOpen) { out.push("</ul>"); subOpen = false; } };
+  const closeList = () => { closeSub(); if (listType) { out.push(`</${listType}>`); listType = null; } };
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line.trim()) { closeList(); continue; }
+
+    // ATX heading
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); out.push(`<h${h[1].length} style="margin:0.4rem 0 0.2rem;font-size:${1.05 - h[1].length * 0.05}rem">${inline(h[2])}</h${h[1].length}>`); continue; }
+
+    // Sub-item (two-space or tab indent + bullet)
+    const sub = line.match(/^(?:\s{2,}|\t)[-*]\s+(.*)$/);
+    if (sub && listType) {
+      if (!subOpen) { out.push('<ul style="margin:0.1rem 0 0.1rem 1.2rem">'); subOpen = true; }
+      out.push(`<li>${inline(sub[1])}</li>`);
+      continue;
+    }
+
+    // Ordered list
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) {
+      if (listType !== "ol") { closeList(); out.push('<ol style="margin:0.2rem 0 0.2rem 1.2rem">'); listType = "ol"; }
+      else closeSub();
+      out.push(`<li>${inline(ol[1])}</li>`);
+      continue;
+    }
+
+    // Unordered list
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    if (ul) {
+      if (listType !== "ul") { closeList(); out.push('<ul style="margin:0.2rem 0 0.2rem 1.2rem">'); listType = "ul"; }
+      else closeSub();
+      out.push(`<li>${inline(ul[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    out.push(`<p style="margin:0.2rem 0">${inline(line)}</p>`);
+  }
+  closeList();
+  return out.join("");
+}
+
 function formatAIResponse(text: string): string {
   let t = text.replace(/\\n/g, "\n");
 
@@ -3050,13 +3116,23 @@ function formatAIResponse(text: string): string {
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, lang, rawCode) => {
     const { path, rest } = extractPathHint(rawCode as string);
     const id = `aiblk_${++_aiBlockCounter}`;
+    // ALWAYS keep the raw source in the map — Copy / Insert / Apply /
+    // Save as… must round-trip the original text verbatim so the user
+    // can still write the untouched markdown to disk.
     aiCodeBlocks.set(id, { code: rest, path, lang: (lang as string) || "" });
 
-    const escCode = (rest as string).split("\n").map((line: string) => {
-      if (line.startsWith("+")) return `<span class="ai-diff-add">${esc(line)}</span>`;
-      if (line.startsWith("-")) return `<span class="ai-diff-del">${esc(line)}</span>`;
-      return esc(line);
-    }).join("\n");
+    // Markdown blocks render as formatted prose in the bubble (headings,
+    // lists, bold, inline code) instead of a monospace dump — reading a
+    // plan as raw `##` and `-` characters is painful. The raw copy lives
+    // in `aiCodeBlocks` above so Copy / Apply still grab the source.
+    const isMarkdown = /^(markdown|md)$/i.test((lang as string) || "");
+    const escCode = isMarkdown
+      ? renderMarkdownInline(rest as string)
+      : (rest as string).split("\n").map((line: string) => {
+          if (line.startsWith("+")) return `<span class="ai-diff-add">${esc(line)}</span>`;
+          if (line.startsWith("-")) return `<span class="ai-diff-del">${esc(line)}</span>`;
+          return esc(line);
+        }).join("\n");
 
     const pathLabel = path ? esc(path) : "active file";
     const applyDisabled = !path && !activeFile;
@@ -3079,7 +3155,7 @@ function formatAIResponse(text: string): string {
             <button class="ai-codeblock-btn" onclick="window.__aiBlockToggle('${id}')" title="Show / hide code">view</button>
           </span>
         </div>
-        <pre style="display:none"><code>${escCode}</code></pre>
+        <pre style="display:none"${isMarkdown ? ' class="ai-codeblock-md"' : ""}>${isMarkdown ? escCode : `<code>${escCode}</code>`}</pre>
       </div>`;
     }
 
@@ -3093,7 +3169,7 @@ function formatAIResponse(text: string): string {
           <button class="ai-codeblock-btn" onclick="window.__aiBlockSaveAs('${id}')" title="Save to a new path">Save as…</button>
         </span>
       </div>
-      <pre><code>${escCode}</code></pre>
+      <pre${isMarkdown ? ' class="ai-codeblock-md"' : ""}>${isMarkdown ? escCode : `<code>${escCode}</code>`}</pre>
     </div>`;
   });
 
