@@ -215,15 +215,13 @@ export function renderEditor(el: HTMLElement): void {
               </div>
               <div id="editor-ai-messages" class="editor-ai-messages">
                 <div class="ai-msg ai-bot">How can I help with this file?</div>
-                <div id="activity-session-bootstrap" style="margin-top:0.5rem">
-                  <div style="font-size:0.7rem;opacity:0.6;padding:0.3rem 0;line-height:1.4">
-                    Supervisor sessions stage work in a throwaway git worktree. Apply commits to your tree only when you accept the proposal.
-                  </div>
-                  <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
-                    <button class="btn btn-sm btn-primary" onclick="window.__editorSessionStartFromActivity()" style="font-size:0.7rem">▶ Start session</button>
-                    <button class="btn btn-sm" onclick="window.__editorTabSwitch('plan')" style="font-size:0.7rem">Plan</button>
-                  </div>
-                </div>
+                <!-- Session + plan entry points live in the mode picker + plan tab.
+                     We used to render "Start session" and "Plan" buttons here, but
+                     they duplicated controls that already exist elsewhere and made
+                     the chat feel mode-heavy on first load. Supervisor mode now
+                     starts a session implicitly on the first send, and if the
+                     project has no .git directory but git is on PATH, the backend
+                     auto-runs git init before creating the worktree. -->
               </div>
             </div>
 
@@ -2132,6 +2130,36 @@ async function aiSend(): Promise<void> {
   chatAbort = new AbortController();
 
   addAIMessage(esc(msg), "user");
+
+  // Supervisor mode stages edits in a throwaway git worktree so the user
+  // can review a proposal before committing. Previously the user had to
+  // click "▶ Start session" first, which made the chat feel front-loaded
+  // with ceremony. Instead: if we're in supervisor mode and no session
+  // exists yet, spin one up right here on the first Send. The title is
+  // the first line of the user's message (same text they would have
+  // typed into the old prompt). If session creation fails (backend down,
+  // git not installed, worktree path not writable) we surface the error
+  // as a bot message and bail — we do NOT silently downgrade to plain
+  // chat mode because the user is explicitly in supervisor mode.
+  if (getSessionMode() === "supervisor" && !currentSession) {
+    const title = msg.split("\n")[0].slice(0, 120).trim() || "supervisor session";
+    try {
+      const meta = await startSession(title, "");
+      if (!meta) {
+        addAIMessage(
+          "Couldn't start a supervisor session — check the Rust agent is running (framework_port + 2000) and try again, or switch to Q&amp;A mode for a read-only chat.",
+          "bot",
+        );
+        return;
+      }
+    } catch (err) {
+      addAIMessage(
+        `Couldn't start a supervisor session: ${esc(String((err as Error)?.message || err))}. Switch to Q&amp;A mode for a read-only chat.`,
+        "bot",
+      );
+      return;
+    }
+  }
 
   // Every turn rebuilds the system message from the CURRENT active file
   // + selection. Otherwise the model keeps answering from whatever file
