@@ -4,6 +4,7 @@ import {
   ChatMessage,
   generateImage as aiGenerateImage,
   probeEndpoint,
+  ragSearch,
   MODELS,
   type ModelKey,
 } from "../ai.js";
@@ -15,6 +16,7 @@ import {
   type McpTool,
 } from "../mcp.js";
 import { TINA4_CONTEXT } from "../tina4-context.js";
+import { detectFramework, getFrameworkOverlay } from "../framework-context.js";
 import { ghostCompletion } from "../ai-completion.js";
 import {
   streamExecute,
@@ -301,7 +303,10 @@ export function renderEditor(el: HTMLElement): void {
             <div class="session-action-row">
               <button class="btn btn-sm btn-primary session-btn-send" onclick="window.__editorAISend()" id="btn-session-send">Send</button>
               <button class="btn btn-sm" onclick="window.__editorAIExplain()" title="Explain selected code">Explain</button>
-              <button class="btn btn-sm" onclick="window.__editorAIImage()" title="Generate image from prompt">&#127912;</button>
+              <!-- Image button removed — say "generate image of <prompt>"
+                   in the chat instead. aiSend() detects the intent and
+                   routes to the image model. One less button, same
+                   capability. -->
               <span class="action-spacer"></span>
               <button class="btn btn-sm" id="btn-session-revise" onclick="window.__editorSessionRevise()" disabled title="Ask the supervisor to revise the current proposal">Revise</button>
               <button class="btn btn-sm btn-primary" id="btn-session-apply" onclick="window.__editorSessionApply()" disabled title="Apply the supervisor's proposal to the working tree">Apply</button>
@@ -368,6 +373,40 @@ export function renderEditor(el: HTMLElement): void {
   startHealthPoll();
   refreshCompletionIndicator();
   reviveSessionFromStorage().catch(() => { /* offline is fine */ });
+  // Repaint persisted chat bubbles so a refresh doesn't wipe context.
+  // chatHistory was already loaded from localStorage at module init;
+  // we just need to render the user/assistant messages back into the
+  // activity panel. System messages are filtered out (rebuilt per turn).
+  restoreChatBubbles();
+}
+
+/** Re-render chat bubbles from `chatHistory` after a page reload. The
+ *  activity panel starts with the placeholder "How can I help…" line;
+ *  if there's any persisted history, drop the placeholder and replay
+ *  the user/assistant turns in order. Tool-call metadata is lost
+ *  (we don't persist it) — that's fine, it was a per-turn artefact. */
+function restoreChatBubbles(): void {
+  const persistable = chatHistory.filter((m) => m.role !== "system");
+  if (persistable.length === 0) return;
+  const container = document.getElementById("editor-ai-messages");
+  if (!container) return;
+  // Drop the "How can I help with this file?" placeholder when we
+  // have real history to show.
+  const placeholder = container.querySelector(".ai-msg.ai-bot");
+  if (placeholder && placeholder.textContent?.trim().startsWith("How can I help")) {
+    placeholder.remove();
+  }
+  for (const m of persistable) {
+    if (m.role === "user") {
+      addAIMessage(esc(String(m.content)), "user");
+    } else if (m.role === "assistant") {
+      const bubble = document.createElement("div");
+      bubble.className = "ai-msg ai-bot";
+      bubble.innerHTML = formatAIResponse(String(m.content));
+      container.appendChild(bubble);
+    }
+  }
+  container.scrollTop = container.scrollHeight;
 }
 
 // ── Editor state persistence ───────────────────────────────────
@@ -1640,9 +1679,35 @@ let completionEnabled: boolean = (() => {
  *  but without the intent boost in the FIM prompt. */
 let activeCompletionPlanIntent: string | null = null;
 
-// Conversation history for the chat panel. We keep it per page-load
-// rather than per file — matches what users expect from a chat UI.
-const chatHistory: ChatMessage[] = [];
+// Conversation history for the chat panel. Persisted to localStorage
+// so an accidental page refresh doesn't wipe context — users were
+// losing 10+ turn conversations to a stray ⌘R. We cap at the last
+// LS_CHAT_MAX entries so the storage doesn't unbounded-grow.
+const LS_CHAT_HISTORY = "tina4.editor.chatHistory.v1";
+const LS_CHAT_MAX = 200;
+
+function loadChatHistory(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(LS_CHAT_HISTORY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveChatHistory(): void {
+  try {
+    // Drop the system message if it ever survived in the array — it's
+    // rebuilt each turn from active-file state and we don't want a
+    // stale snapshot pinned across reloads.
+    const persistable = chatHistory
+      .filter((m) => m.role !== "system")
+      .slice(-LS_CHAT_MAX);
+    localStorage.setItem(LS_CHAT_HISTORY, JSON.stringify(persistable));
+  } catch { /* quota / privacy mode — silent */ }
+}
+const chatHistory: ChatMessage[] = loadChatHistory();
 
 /** In-flight request so a new Send cancels a still-streaming response. */
 let chatAbort: AbortController | null = null;
@@ -2129,6 +2194,22 @@ async function aiSend(): Promise<void> {
   chatAbort?.abort();
   chatAbort = new AbortController();
 
+  // Image-intent shortcut. The 🎨 button used to be the only way to
+  // hit the image model; users hated the extra button and asked to
+  // just type "generate image of …" instead. We detect a leading
+  // "generate image", "draw", "create image", "render image" verb
+  // and route the rest of the message to aiImagePrompt(), which
+  // handles the streaming image bubble. The chat path is bypassed
+  // entirely so we don't waste a qwen call.
+  const imageIntent = /^\s*(?:generate|create|render|draw|make)\s+(?:an?\s+)?(?:image|picture|drawing|illustration|render)(?:\s+(?:of|for|showing))?\s*[:,-]?\s+(.+)$/i;
+  const m = msg.match(imageIntent);
+  if (m) {
+    const prompt = m[1].trim();
+    if (input) input.value = prompt;     // aiImagePrompt reads from the input
+    await aiImagePrompt();
+    return;
+  }
+
   addAIMessage(esc(msg), "user");
 
   // Supervisor mode stages edits in a throwaway git worktree so the user
@@ -2224,11 +2305,29 @@ async function aiSend(): Promise<void> {
     "  WRONG: emitting just one tool_call and saying 'Added a placeholder to the name field'. That's one out of three — the user asked for all of them.",
   ];
   let sys = rules.join("\n");
+  // Per-framework overlay FIRST so its examples (Router::get for PHP,
+  // Tina4::Router.get for Ruby, file-based routes for Node) override
+  // the Python-flavoured examples in the generic Tina4 reference. The
+  // overlay is short and authoritative; the generic block underneath
+  // is a deeper reference. Order matters — model reads top-down.
+  const fwOverlay = getFrameworkOverlay(detectFramework());
+  sys += "\n\n" + fwOverlay;
   // Tina4 framework cheat-sheet — makes the model write idiomatic
   // @get/@post routes, use response() not response.json(), pull from
   // built-ins instead of reinventing queues/auth/HTTP, etc. Injected
   // once per turn so it's always in scope.
   sys += "\n\n" + TINA4_CONTEXT;
+  // Optional RAG: pull the top-N framework-doc passages most relevant
+  // to the user's prompt + active file. tina4-rag at /rag/search
+  // returns {results: [{text, score, source}, ...]}. Failure is
+  // non-fatal (network blip, RAG down) — we just skip the augment.
+  try {
+    const ragHits = await ragSearch(msg, file?.path, 3);
+    if (ragHits.length) {
+      sys += "\n\nRELEVANT FRAMEWORK DOCS (retrieved for this turn):\n" +
+        ragHits.map((h, i) => `[${i + 1}] (${h.source}) ${h.text}`).join("\n\n");
+    }
+  } catch { /* RAG offline — proceed without */ }
   if (tools.length) {
     sys += "\n\n" + formatToolsForPrompt(tools);
   }
@@ -2246,6 +2345,7 @@ async function aiSend(): Promise<void> {
   chatHistory.unshift({ role: "system", content: sys });
 
   chatHistory.push({ role: "user", content: msg });
+  saveChatHistory();
 
   // Live bubble — we mutate its innerHTML as each token arrives
   const container = document.getElementById("editor-ai-messages");
@@ -2273,6 +2373,7 @@ async function aiSend(): Promise<void> {
         },
       });
       chatHistory.push({ role: "assistant", content: final });
+      saveChatHistory();
       const formatted = formatAIResponse(final);
       if (!formatted.trim()) {
         // The assistant emitted only tool_call blocks (common on

@@ -139,6 +139,44 @@ export async function generateImage(
 // 5xx mean "down." 2.5s timeout keeps the strip responsive when one of
 // the backends hangs.
 
+// ── RAG retrieval (tina4-rag at /rag) ───────────────────────────
+
+export interface RagHit {
+  text: string;
+  score: number;
+  source: string;
+}
+
+/** Query tina4-rag for the top-N passages relevant to `query` (and
+ *  optionally an active file path for additional context). Failure
+ *  is non-fatal — returns []. The chat pipeline calls this per-turn
+ *  so the model gets framework-specific docs without us having to
+ *  ship them inline. */
+export async function ragSearch(query: string, filePath?: string, k = 3): Promise<RagHit[]> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 4000);
+    const body = filePath ? { query, file: filePath, k } : { query, k };
+    const r = await fetch("/rag/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) return [];
+    const data = await r.json();
+    const results = Array.isArray(data?.results) ? data.results : [];
+    return results.slice(0, k).map((h: any) => ({
+      text: String(h?.text ?? h?.content ?? "").slice(0, 800),
+      score: Number(h?.score ?? 0),
+      source: String(h?.source ?? h?.file ?? "rag"),
+    })).filter((h: RagHit) => h.text.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 export async function probeEndpoint(url: string, timeoutMs = 2500): Promise<boolean> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
