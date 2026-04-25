@@ -2447,8 +2447,8 @@ function applySessionModeToDOM(mode: SessionMode): void {
   const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement | null;
   if (input) {
     input.placeholder = mode === "qa"
-      ? "Ask a question — Q&A mode won't write files."
-      : "Describe the change (supervisor will propose a plan if none is active)...";
+      ? "Ask a question…"
+      : "Describe the change…";
   }
 }
 
