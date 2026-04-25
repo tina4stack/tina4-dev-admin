@@ -36,7 +36,8 @@ import {
 
 // ── CodeMirror imports ──
 import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, Decoration, MatchDecorator, ViewPlugin } from "@codemirror/view";
+import type { ViewUpdate, DecorationSet } from "@codemirror/view";
 import { defaultKeymap, indentWithTab, insertNewlineAndIndent, history, historyKeymap } from "@codemirror/commands";
 import { indentOnInput, indentUnit, bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from "@codemirror/autocomplete";
@@ -73,6 +74,56 @@ let expandedDirs: Set<string> = new Set([".", "src", "src/routes", "src/orm", "s
 let container: HTMLElement | null = null;
 let fileTreeCache: Map<string, any[]> = new Map();
 
+// ── Twig decoration overlay ──
+//
+// CodeMirror's lang-html owns the HTML grammar. We layer a
+// MatchDecorator on top that recognises Twig's three delimiter
+// shapes:
+//   - `{% ... %}` — control flow (extends, block, if, for, set, …)
+//   - `{{ ... }}` — value interpolation
+//   - `{# ... #}` — comments
+//
+// Each match gets a distinct CSS class so the editor's theme can
+// colour them. Without this overlay, Twig markers blend into the
+// HTML payload and the file reads like grey text.
+const TWIG_DECORATION_REGEX = /\{%[-+]?[\s\S]*?[-+]?%\}|\{\{[-+]?[\s\S]*?[-+]?\}\}|\{#[\s\S]*?#\}/g;
+
+function twigClassFor(match: string): string {
+  if (match.startsWith("{%")) return "tw-tag";
+  if (match.startsWith("{{")) return "tw-expr";
+  if (match.startsWith("{#")) return "tw-comment";
+  return "tw-tag";
+}
+
+const twigMatchDecorator = new MatchDecorator({
+  regexp: TWIG_DECORATION_REGEX,
+  decoration: (match) => Decoration.mark({
+    class: twigClassFor(match[0]),
+    attributes: { "data-twig": twigClassFor(match[0]) },
+  }),
+});
+
+function twigDecorationExt() {
+  return [
+    ViewPlugin.fromClass(class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = twigMatchDecorator.createDeco(view);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = twigMatchDecorator.updateDeco(update, this.decorations);
+        }
+      }
+    }, { decorations: (v) => v.decorations }),
+    EditorView.baseTheme({
+      ".tw-tag":     { color: "#cba6f7", fontWeight: "600" },        // mauve — control flow
+      ".tw-expr":    { color: "#f9e2af" },                           // yellow — value
+      ".tw-comment": { color: "#6c7086", fontStyle: "italic" },      // overlay grey — comment
+    }),
+  ];
+}
+
 // ── Language extensions ──
 function langExtension(lang: string) {
   switch (lang) {
@@ -90,6 +141,19 @@ function langExtension(lang: string) {
     case "shell": return StreamLanguage.define(shell);
     case "toml": return StreamLanguage.define(toml);
     case "env": return StreamLanguage.define(properties);
+    // Twig templates use Jinja2-style syntax — `{%`, `{{`, `{#`,
+    // `extends`/`block`/`if`/`for` keywords — embedded inside HTML.
+    // Earlier we just used the Jinja2 stream-mode for the whole file,
+    // but that meant `<h1>`, `<p>`, attribute strings etc. all rendered
+    // as plain text — readers asked for HTML tag colour to come
+    // through. Now we use html() as the base language so HTML
+    // structure gets full lang-html highlighting, AND overlay a
+    // decoration extension that visually distinguishes Twig
+    // delimiters (`{% ... %}`, `{{ ... }}`, `{# ... #}`) on top.
+    case "twig":
+    case "jinja":
+    case "jinja2":
+    case "frond": return [html(), twigDecorationExt()];
     default: return [];
   }
 }
@@ -2197,15 +2261,52 @@ async function aiSend(): Promise<void> {
   // Image-intent shortcut. The 🎨 button used to be the only way to
   // hit the image model; users hated the extra button and asked to
   // just type "generate image of …" instead. We detect a leading
-  // "generate image", "draw", "create image", "render image" verb
-  // and route the rest of the message to aiImagePrompt(), which
-  // handles the streaming image bubble. The chat path is bypassed
-  // entirely so we don't waste a qwen call.
-  const imageIntent = /^\s*(?:generate|create|render|draw|make)\s+(?:an?\s+)?(?:image|picture|drawing|illustration|render)(?:\s+(?:of|for|showing))?\s*[:,-]?\s+(.+)$/i;
-  const m = msg.match(imageIntent);
-  if (m) {
-    const prompt = m[1].trim();
-    if (input) input.value = prompt;     // aiImagePrompt reads from the input
+  // verb (generate/create/render/draw/make/show/give) followed by
+  // an image-word — and accept common typos (pciture, picure, pictue,
+  // imag, etc.) since spelling those words mid-flow is annoying.
+  // Also accept short forms ("draw a cow", "pic of a dog") where the
+  // verb alone implies the intent.
+  //
+  // The chat path is bypassed entirely so we don't waste a qwen call,
+  // AND the model can't claim it "can't generate images" the way it
+  // does when we leave intent detection to the LLM.
+  const imageWord = /(?:image|images|picture|pictures|pic|pics|p[ci]ct?u?re|drawing|illustration|render|rendering|sketch|photo|photograph|graphic|art|artwork)/i;
+  const imageVerbAndNoun = /^\s*(?:generate|create|render|draw|make|sketch|show|give\s+me|gimme|i\s+want)\s+(?:an?\s+|some\s+)?/i;
+  let imagePrompt: string | null = null;
+
+  // Pattern A: "<verb> [a/an/some] <imageWord> [of/for/showing/with] <prompt>"
+  const fullMatch = msg.match(new RegExp(
+    "^\\s*(?:generate|create|render|draw|make|sketch|show|give\\s+me|gimme)\\s+(?:an?\\s+|some\\s+)?" +
+    imageWord.source +
+    "(?:\\s+(?:of|for|showing|with))?\\s*[:,-]?\\s+(.+)$",
+    "i",
+  ));
+  if (fullMatch) {
+    imagePrompt = fullMatch[1].trim();
+  } else {
+    // Pattern B: bare "draw <prompt>" / "sketch <prompt>" — the verb
+    // alone is unambiguous for visual output.
+    const bareDraw = msg.match(/^\s*(?:draw|sketch)\s+(?:an?\s+|some\s+)?(.+)$/i);
+    if (bareDraw) imagePrompt = bareDraw[1].trim();
+
+    // Pattern C: noun-led — "picture of a cow", "image of a tree",
+    // "pciture ofa cow" (typo squashed). Requires the image-word at
+    // start AND a connector ("of"/"for"/"with"/"showing") so we don't
+    // accidentally route a question like "image processing libraries
+    // in PHP?" to SDXL. The connector is allowed to run together with
+    // the noun ("ofa") and to drop articles ("of cow" / "of a cow").
+    if (!imagePrompt) {
+      const nounLed = msg.match(new RegExp(
+        "^\\s*(?:a\\s+)?" + imageWord.source +
+        "\\s+(?:of|for|showing|with|depicting)\\s*(?:an?\\s+|some\\s+)?(.+)$",
+        "i",
+      ));
+      if (nounLed) imagePrompt = nounLed[1].trim();
+    }
+  }
+
+  if (imagePrompt && imagePrompt.length > 0) {
+    if (input) input.value = imagePrompt;     // aiImagePrompt reads from the input
     await aiImagePrompt();
     return;
   }

@@ -67,7 +67,7 @@ AUTH (expires_in is MINUTES since 3.11.27):
 - \`\\Tina4\\Auth::checkPassword(\$plain, \$hashed)\` — args are (plaintext, hash) NOT (hash, plaintext).
 
 TEMPLATES (Frond — Twig-compatible):
-- \`return \$response->template('page.twig', ['title' => 'X']);\`
+- \`return \$response->render('page.twig', ['title' => 'X']);\`
 - Filter: \`{{ value | money }}\` — register in app.php with \`Frond::addFilter('money', fn(\$v) => ...);\`.
 
 COMMON GOTCHAS:
