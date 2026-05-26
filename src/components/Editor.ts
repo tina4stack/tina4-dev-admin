@@ -324,8 +324,8 @@ export function renderEditor(el: HTMLElement): void {
   // open session (worktree still exists on the server) so reload
   // doesn't orphan in-flight work.
   applySessionModeToDOM(getSessionMode());
-  const savedTab = (localStorage.getItem(LS_ACTIVE_TAB) as SessionTab | null) || "activity";
-  switchTab(savedTab);
+  // (removed: old session-tab restore — Activity/Plan/Diff/Checks
+  // tabs no longer exist; the threads pane is always active.)
   startHealthPoll();
   refreshCompletionIndicator();
   reviveSessionFromStorage().catch(() => { /* offline is fine */ });
@@ -1916,19 +1916,6 @@ async function loadThoughtsBanner(): Promise<void> {
   }).join("");
 }
 
-/** Turn a thought into the next chat prompt — gives the user a one-
- *  click "yes, do something about this" path. */
-async function actOnThought(id: string): Promise<void> {
-  const chip = document.querySelector<HTMLElement>(`.editor-thought-chip[data-id="${CSS.escape(id)}"] .editor-thought-chip-body`);
-  const message = chip?.textContent?.trim() || "";
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement | null;
-  if (input && message) {
-    input.value = message;
-    await aiSend();
-  }
-  await dismissThoughtChip(id);
-}
-
 async function dismissThoughtChip(id: string): Promise<void> {
   // Remember by content hash so regenerated thoughts with the same
   // essence but a fresh ID stay dismissed across polls / reloads.
@@ -2033,7 +2020,30 @@ interface ThreadMeta {
   last_message_at: string;
   archived: boolean;
   message_count?: number;
-  status_hint?: "idle" | "needs_input" | "done" | "error";
+  // Status vocabulary matches the Rust agent's compute_thread_status
+  // output (see agent.rs). Kept as a wide string so a new server-side
+  // status doesn't immediately break the SPA build — the pill renderer
+  // falls back to UPPERCASING the raw key when unknown.
+  status_hint?:
+    | "idle"
+    | "done"
+    | "awaiting_customer"
+    | "wont_do"
+    | "blocked"
+    | "feedback"
+    | "running"
+    | "error"
+    | "needs_input"
+    | string;
+  /** "feedback" for customer-feedback tickets, undefined for normal
+   *  developer-chat threads. Drives the read-only ticket view + the
+   *  NEW FEEDBACK pill. */
+  kind?: "feedback" | string;
+  /** For feedback threads — who submitted it. Shown as "📨 from <sender>". */
+  sender?: string;
+  /** When archived, why. "done" or "wont_do" — drives the DONE vs
+   *  WONT DO pill copy. Absent on open threads. */
+  closure_reason?: "done" | "wont_do" | string;
 }
 
 interface ThreadMessage {
@@ -2851,386 +2861,6 @@ async function supervisorChat(
   }
 }
 
-async function aiSend(): Promise<void> {
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement;
-  const msg = input?.value?.trim();
-  if (!msg) return;
-  input.value = "";
-
-  // Cancel any in-flight streaming response from a previous Send
-  chatAbort?.abort();
-  chatAbort = new AbortController();
-
-  // Image-intent shortcut. The 🎨 button used to be the only way to
-  // hit the image model; users hated the extra button and asked to
-  // just type "generate image of …" instead. We detect a leading
-  // verb (generate/create/render/draw/make/show/give) followed by
-  // an image-word — and accept common typos (pciture, picure, pictue,
-  // imag, etc.) since spelling those words mid-flow is annoying.
-  // Also accept short forms ("draw a cow", "pic of a dog") where the
-  // verb alone implies the intent.
-  //
-  // The chat path is bypassed entirely so we don't waste a qwen call,
-  // AND the model can't claim it "can't generate images" the way it
-  // does when we leave intent detection to the LLM.
-  const imageWord = /(?:image|images|picture|pictures|pic|pics|p[ci]ct?u?re|drawing|illustration|render|rendering|sketch|photo|photograph|graphic|art|artwork)/i;
-  const imageVerbAndNoun = /^\s*(?:generate|create|render|draw|make|sketch|show|give\s+me|gimme|i\s+want)\s+(?:an?\s+|some\s+)?/i;
-  let imagePrompt: string | null = null;
-
-  // Pattern A: "<verb> [a/an/some] <imageWord> [of/for/showing/with] <prompt>"
-  const fullMatch = msg.match(new RegExp(
-    "^\\s*(?:generate|create|render|draw|make|sketch|show|give\\s+me|gimme)\\s+(?:an?\\s+|some\\s+)?" +
-    imageWord.source +
-    "(?:\\s+(?:of|for|showing|with))?\\s*[:,-]?\\s+(.+)$",
-    "i",
-  ));
-  if (fullMatch) {
-    imagePrompt = fullMatch[1].trim();
-  } else {
-    // Pattern B: bare "draw <prompt>" / "sketch <prompt>" — the verb
-    // alone is unambiguous for visual output.
-    const bareDraw = msg.match(/^\s*(?:draw|sketch)\s+(?:an?\s+|some\s+)?(.+)$/i);
-    if (bareDraw) imagePrompt = bareDraw[1].trim();
-
-    // Pattern C: noun-led — "picture of a cow", "image of a tree",
-    // "pciture ofa cow" (typo squashed). Requires the image-word at
-    // start AND a connector ("of"/"for"/"with"/"showing") so we don't
-    // accidentally route a question like "image processing libraries
-    // in PHP?" to SDXL. The connector is allowed to run together with
-    // the noun ("ofa") and to drop articles ("of cow" / "of a cow").
-    if (!imagePrompt) {
-      const nounLed = msg.match(new RegExp(
-        "^\\s*(?:a\\s+)?" + imageWord.source +
-        "\\s+(?:of|for|showing|with|depicting)\\s*(?:an?\\s+|some\\s+)?(.+)$",
-        "i",
-      ));
-      if (nounLed) imagePrompt = nounLed[1].trim();
-    }
-  }
-
-  if (imagePrompt && imagePrompt.length > 0) {
-    if (input) input.value = imagePrompt;     // aiImagePrompt reads from the input
-    await aiImagePrompt();
-    return;
-  }
-
-  addAIMessage(esc(msg), "user");
-
-  // ── Supervisor mode dispatch ─────────────────────────────────────
-  // Threads are now the primitive. No session/worktree ceremony — if
-  // there's no active thread, create one transparently on the first
-  // send. Subsequent turns reuse the active thread. The Rust supervisor
-  // maintains server-side history keyed by thread_id; the SPA keeps a
-  // local cache (threadMessageCache) for snappy switching.
-  //
-  // Worktree-per-thread isolation is a round-2 task — for now writes
-  // land in the main working tree, same as before threads existed.
-  if (getSessionMode() === "supervisor") {
-    // Auto-create a thread on first send so the user doesn't have to
-    // click "+ New" before their first message.
-    if (!activeThreadId) {
-      try {
-        const t = await apiThreadsCreate(msg.slice(0, 80));
-        threadList.push(t);
-        threadMessageCache.set(t.id, []);
-        activeThreadId = t.id;
-        try { localStorage.setItem(LS_ACTIVE_THREAD, t.id); } catch {}
-        renderThreadSidebar();
-      } catch (e) {
-        addAIMessage(
-          `<span style="color:var(--danger,#f38ba8)">Couldn't create thread: ${esc(String((e as Error)?.message || e))}. Is the agent running?</span>`,
-          "bot",
-        );
-        return;
-      }
-    }
-    const turnThreadId = activeThreadId!;
-
-    // Local message cache: append the user turn so reload restores it,
-    // and so switching away mid-stream and back still shows the message.
-    const cache = threadMessageCache.get(turnThreadId) || [];
-    cache.push({
-      id: `local-${Date.now()}`, role: "user", content: msg,
-      timestamp: new Date().toISOString(), thread_id: turnThreadId,
-    });
-    threadMessageCache.set(turnThreadId, cache);
-
-    // Mark in-flight so the sidebar pip pulses while the supervisor runs.
-    threadInFlight.add(turnThreadId);
-    renderThreadSidebar();
-
-    try {
-      await supervisorChat(msg, turnThreadId, chatAbort.signal);
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        addAIMessage(
-          `<span style="color:var(--danger,#f38ba8)">Supervisor connection failed: ${esc(String(e?.message || e))}</span>`,
-          "bot",
-        );
-      }
-    } finally {
-      threadInFlight.delete(turnThreadId);
-      chatAbort = null;
-      // Pull fresh thread metadata so message_count + status_hint
-      // reflect the new turn. Also reload the messages cache so the
-      // local user-turn placeholder gets replaced by the server's
-      // canonical (timestamped, id'd) version on next paint.
-      try {
-        await loadThreadMessages(turnThreadId, /*force=*/true);
-      } catch {}
-      await refreshThreadList();
-    }
-    return;
-  }
-
-  // Every turn rebuilds the system message from the CURRENT active file
-  // + selection. Otherwise the model keeps answering from whatever file
-  // was open when the conversation started, and the user wonders why
-  // swapping tabs doesn't change its answers.
-  //
-  // We keep user/assistant turns intact, drop the old system message,
-  // and prepend a fresh one reflecting editor state right now.
-  const file = openFiles.find((f) => f.path === activeFile);
-  const selection = getSelectedText();
-  while (chatHistory.length && chatHistory[0].role === "system") chatHistory.shift();
-
-  // MCP tools are available — fetch registry so we can announce them to the
-  // model. Fire-and-forget cache means subsequent turns don't re-hit the server.
-  const tools = await getMcpTools();
-  // Pull the current plan so the model keeps working toward the same
-  // goal across chat turns instead of starting fresh every time.
-  const plan = await getCurrentPlan();
-
-  const rules = [
-    "You are a coding assistant embedded in the Tina4 editor.",
-    "Rules:",
-    "- Be direct and concise. No pleasantries, no 'how can I help' filler.",
-    "- NEVER repeat the file's contents back to the user — they can see it.",
-    "- NEVER describe what a file 'contains' — jump straight to the answer.",
-    "- NEVER end with 'is there anything else…' or similar prompts.",
-    "- When suggesting code changes, output ONLY the new/changed code in a fenced block, with a comment on line 1 showing the target path, e.g. `// src/routes/home.ts`.",
-    "- For multi-step changes, number them. One fenced block per step.",
-    "- If the user asks for an explanation, give it in ≤3 short paragraphs.",
-    "- Answers must be about the CURRENT active file shown below. If the user asks about a different file, say so.",
-    "- Prefer calling tools (database_query, file_read, route_list, etc.) to *verify* facts before answering. Do NOT guess table names, file contents, or routes when a tool call can confirm them.",
-    "- INVESTIGATE, DON'T INTERROGATE. You have file_read, index_search, index_file, docs_search, route_list, orm_describe, file_list, database_tables, and 25+ more tools. Before asking the user 'what's in app.py?' or 'where is X?' — just call the tool. Asking for information you can fetch yourself in one tool call wastes the user's time and makes you look lazy.",
-    "  • User says 'add an sqlite database'? Call index_file('app.py') or file_read('app.py'), see what's there, then file_patch/file_write the Database(...) line in. Don't ask for confirmation.",
-    "  • User refers to a filename without a path ('app.py', 'home.py', 'users.twig')? Try the obvious locations first (./app.py, src/routes/home.py, src/templates/users.twig) via index_search or file_read. Only ask if you genuinely can't find it.",
-    "  • User says 'add it under data' or similar ambiguous phrasing? Interpret reasonably based on context — 'under data' for an sqlite DB means the .db file lives in ./data/, not that you edit something in a data/ directory. Make the sensible call and proceed; if wrong, the user will correct you in the next turn.",
-    "- DEFAULT TO THE ACTIVE FILE. The currently-open file in the editor is shown to you every turn (look for 'Active file:' in this prompt). When the user gives an edit instruction without naming a file — 'remove the placeholders', 'add a docstring', 'rename this function', 'make it public', 'add noauth' — they mean the active file. Operate on it. Do NOT ask 'which file?' when there's one right in front of you. Only ask when no file is active OR when the instruction mentions a different filename explicitly.",
-    "  • Example: active file is src/routes/ping.py, user says 'remove noauth' → file_patch ping.py to strip every @noauth() decorator. Don't ask; there's only one possible target.",
-    "  • Example: active file is .env, user says 'add a comment at the top' → file_patch .env. Don't ask.",
-    "- EDITING FILES — critical rules:",
-    "  • NEVER claim to have changed a file unless you actually emitted a ```tool_call``` for `file_write` or `file_patch` in the SAME turn and got back a `tool_result`. Saying 'Added X' or 'Updated Y' without a real tool call is a lie. If you didn't call a tool, you didn't change anything — say what you'd change and ask the user to confirm instead.",
-    "  • For small/targeted changes to an EXISTING file: use `file_patch` with a minimal unique `old_string` and the replacement `new_string`. Never reach for file_write when file_patch can do the job.",
-    "  • Only use `file_write` when (a) creating a brand-new file, or (b) rewriting a file wholesale. In both cases the `content` argument MUST be the COMPLETE file contents — every line, top to bottom. Emitting a fragment deletes the rest of the file.",
-    "  • Before file_write on an existing file, call `file_read` first and include every line in your replacement. Never guess what was there.",
-    "  • If the change is a single snippet (one function, one block, one fragment), that is a file_patch, not a file_write.",
-    "- Response shape for an edit request:",
-    "  1. Emit the tool_call block(s) (file_patch or file_write).",
-    "  2. Wait for the tool_result.",
-    "  3. THEN respond with ONE short sentence acknowledging what you did. Example: user asks 'add css to file' → after a successful file_patch → you reply 'Added CSS to src/templates/index.html.' That's it. Do NOT repeat the changed code — the editor already shows it.",
-    "  If the tool_result shows an error, explain what went wrong and retry. Never pretend the edit succeeded.",
-    "- ANNOUNCING IS NOT DOING. If you write 'Implementing step 2: POST /api/contact route.' and don't emit a tool_call block, you've done NOTHING. The user will see a warning chip. Either emit the tool_call in the same turn, or don't announce — every sentence describing work must be backed by a matching tool_call you already emitted above it. 'I will add X' is forbidden phrasing; your ONLY options are (a) emit a tool_call and follow with 'Added X.' or (b) ask a clarifying question. Never promise future work.",
-    "- BATCH tool calls when a request implies multiple edits (e.g. 'remove all placeholders', 'rename variable everywhere', 'add X to every field'). Emit every ```tool_call``` block in a SINGLE response — they run in parallel. Doing one patch per turn is slow and fills the chat with noise. Only fall back to sequential calls when a later edit genuinely depends on an earlier result.",
-    '- Worked example. User: "add placeholders to the form" on a 3-input HTML file. CORRECT response (all three patches in ONE turn):',
-    "  ```tool_call",
-    '  {"name":"file_patch","arguments":{"path":"src/templates/index.html","old_string":"id=\\"name\\" name=\\"name\\" required","new_string":"id=\\"name\\" name=\\"name\\" required placeholder=\\"Full name\\""}}',
-    "  ```",
-    "  ```tool_call",
-    '  {"name":"file_patch","arguments":{"path":"src/templates/index.html","old_string":"id=\\"last_name\\" name=\\"last_name\\" required","new_string":"id=\\"last_name\\" name=\\"last_name\\" required placeholder=\\"Last name\\""}}',
-    "  ```",
-    "  ```tool_call",
-    '  {"name":"file_patch","arguments":{"path":"src/templates/index.html","old_string":"id=\\"email\\" name=\\"email\\" required","new_string":"id=\\"email\\" name=\\"email\\" required placeholder=\\"you@example.com\\""}}',
-    "  ```",
-    "  WRONG: emitting just one tool_call and saying 'Added a placeholder to the name field'. That's one out of three — the user asked for all of them.",
-  ];
-  let sys = rules.join("\n");
-  // Per-framework overlay FIRST so its examples (Router::get for PHP,
-  // Tina4::Router.get for Ruby, file-based routes for Node) override
-  // the Python-flavoured examples in the generic Tina4 reference. The
-  // overlay is short and authoritative; the generic block underneath
-  // is a deeper reference. Order matters — model reads top-down.
-  const fwOverlay = getFrameworkOverlay(detectFramework());
-  sys += "\n\n" + fwOverlay;
-  // Tina4 framework cheat-sheet — makes the model write idiomatic
-  // @get/@post routes, use response() not response.json(), pull from
-  // built-ins instead of reinventing queues/auth/HTTP, etc. Injected
-  // once per turn so it's always in scope.
-  sys += "\n\n" + TINA4_CONTEXT;
-  // Optional RAG: pull the top-N framework-doc passages most relevant
-  // to the user's prompt + active file. tina4-rag at /rag/search
-  // returns {results: [{text, score, source}, ...]}. Failure is
-  // non-fatal (network blip, RAG down) — we just skip the augment.
-  try {
-    const ragHits = await ragSearch(msg, file?.path, 3);
-    if (ragHits.length) {
-      sys += "\n\nRELEVANT FRAMEWORK DOCS (retrieved for this turn):\n" +
-        ragHits.map((h, i) => `[${i + 1}] (${h.source}) ${h.text}`).join("\n\n");
-    }
-  } catch { /* RAG offline — proceed without */ }
-  if (tools.length) {
-    sys += "\n\n" + formatToolsForPrompt(tools);
-  }
-  if (plan) {
-    sys += "\n\n" + plan;
-  }
-  if (file) {
-    sys += `\n\n---\nActive file: ${file.path} (${file.language})\n\`\`\`${file.language}\n${file.content}\n\`\`\``;
-  } else {
-    sys += "\n\n---\n(No file is currently open in the editor.)";
-  }
-  if (selection) {
-    sys += `\n\nUser's current selection:\n\`\`\`${file?.language || ""}\n${selection}\n\`\`\``;
-  }
-  chatHistory.unshift({ role: "system", content: sys });
-
-  chatHistory.push({ role: "user", content: msg });
-  saveChatHistory();
-
-  // Live bubble — we mutate its innerHTML as each token arrives
-  const container = document.getElementById("editor-ai-messages");
-  if (!container) return;
-  const bubble = document.createElement("div");
-  bubble.className = "ai-msg ai-bot";
-  bubble.innerHTML = '<span style="opacity:0.6">Thinking…</span>';
-  container.appendChild(bubble);
-  container.scrollTop = container.scrollHeight;
-
-  try {
-    let currentBubble = bubble;
-    let round = 0;
-    // Track whether the model has called a tool anywhere in this user
-    // turn. The hallucination detector uses this so the final
-    // acknowledgement round ("Removed the placeholder…") doesn't get
-    // falsely flagged — a tool *did* fire, just in an earlier round.
-    let toolsRanThisTurn = false;
-    while (round < MAX_TOOL_ROUNDS) {
-      const final = await aiChat(chatHistory, {
-        signal: chatAbort.signal,
-        onToken: (_tok, accumulated) => {
-          currentBubble.textContent = accumulated;
-          container.scrollTop = container.scrollHeight;
-        },
-      });
-      chatHistory.push({ role: "assistant", content: final });
-      saveChatHistory();
-      const formatted = formatAIResponse(final);
-      if (!formatted.trim()) {
-        // The assistant emitted only tool_call blocks (common on
-        // intermediate rounds). Rendering an empty bubble just
-        // creates a grey gap between the compact tool-result rows.
-        // Drop it; the tool-result bubble that follows is the
-        // visible record of what happened.
-        currentBubble.remove();
-      } else {
-        currentBubble.innerHTML = formatted;
-      }
-      // Auto-apply any code block where the AI named an explicit file
-      // path on line 1 — that's the model saying "write this here",
-      // and requiring a click for that is just friction.
-      autoApplyBlocksIn(currentBubble);
-      // Safety net: if the assistant *claims* to have changed a file
-      // but didn't actually emit a tool_call anywhere in this user
-      // turn, call out the lie. Small models sometimes skip the tool
-      // and just narrate. We look at the whole turn (not just the
-      // current round) so the step-3 acknowledgement after a real
-      // tool call doesn't get falsely flagged.
-      const callsThisRound = parseToolCalls(final, new Set((await getMcpTools()).map((t) => t.name))).length;
-      if (callsThisRound > 0) toolsRanThisTurn = true;
-      flagHallucinatedEditsIn(currentBubble, final, toolsRanThisTurn);
-
-      // If the assistant emitted ```tool_call``` blocks, execute them and
-      // feed the results back as a user turn so the model can continue
-      // reasoning. Stop when no more tool calls are emitted — that's the
-      // model's signal that it's done.
-      const calls = parseToolCalls(final, new Set((await getMcpTools()).map((t) => t.name)));
-      if (!calls.length) break;
-
-      // One compact bubble for the whole round. Each tool_call becomes
-      // a single line inside it; identical lines (same tool + same
-      // touched path) collapse into `… ×N`. Read-only tool output
-      // (database_query, file_read, …) still gets its own <details>.
-      const roundBubble = document.createElement("div");
-      roundBubble.className = "ai-msg ai-bot";
-      roundBubble.style.cssText = "padding:0.35rem 0.6rem;font-size:0.72rem;display:flex;flex-direction:column;gap:0.15rem";
-      container.appendChild(roundBubble);
-      container.scrollTop = container.scrollHeight;
-
-      const results: string[] = [];
-      const lineKeys: string[] = []; // in-order dedupe keys
-      const linesByKey = new Map<string, { count: number; html: string }>();
-
-      for (const c of calls) {
-        // Safety guard — see guardFileWrite.
-        const guard = await guardFileWrite(c.name, c.arguments);
-        const r = guard ?? await callMcpTool(c.name, c.arguments);
-        const formatted = r.ok
-          ? (typeof r.result === "string" ? r.result : JSON.stringify(r.result, null, 2))
-          : `ERROR: ${r.error || "tool call failed"}`;
-        const truncated = formatted.length > 4000 ? formatted.slice(0, 4000) + "\n…(truncated)" : formatted;
-        const touched = r.ok ? extractTouchedPath(c.name, c.arguments, (r as any).result) : "";
-        if (touched) await refreshAfterToolMutation(touched);
-
-        let lineHtml: string;
-        let key: string;
-        if (!r.ok) {
-          key = `err:${c.name}:${r.error}`;
-          lineHtml = `<div style="color:var(--danger,#f38ba8)">✗ <code>${esc(c.name)}</code> — ${esc((r.error || "").slice(0, 120))}</div>`;
-        } else if (touched) {
-          key = `ok:${c.name}:${touched}`;
-          lineHtml = `<div style="color:var(--success,#a6e3a1)">✓ <code>${esc(c.name)}</code> → <code>${esc(touched)}</code></div>`;
-        } else {
-          // Read-only tool: keep the payload accessible as details.
-          key = `read:${c.name}:${Math.random()}`; // never dedupe read results
-          lineHtml = `<details><summary style="cursor:pointer;list-style:none;opacity:0.85">🔧 <code>${esc(c.name)}</code></summary><pre style="margin:0.2rem 0 0;white-space:pre-wrap;font-size:0.7rem;max-height:200px;overflow:auto">${esc(truncated)}</pre></details>`;
-        }
-        const existing = linesByKey.get(key);
-        if (existing) {
-          existing.count += 1;
-        } else {
-          linesByKey.set(key, { count: 1, html: lineHtml });
-          lineKeys.push(key);
-        }
-        results.push(`\`\`\`tool_result name=${c.name}\n${truncated}\n\`\`\``);
-      }
-
-      roundBubble.innerHTML = lineKeys.map((k) => {
-        const { count, html } = linesByKey.get(k)!;
-        return count > 1
-          ? html.replace(/<\/(div|summary)>/, ` <span style="opacity:0.55">×${count}</span></$1>`)
-          : html;
-      }).join("");
-
-      chatHistory.push({ role: "user", content: results.join("\n\n") });
-
-      // Prepare a fresh bubble for the model's follow-up
-      currentBubble = document.createElement("div");
-      currentBubble.className = "ai-msg ai-bot";
-      currentBubble.innerHTML = '<span style="opacity:0.6">Thinking…</span>';
-      container.appendChild(currentBubble);
-      container.scrollTop = container.scrollHeight;
-      round++;
-    }
-    if (round >= MAX_TOOL_ROUNDS) {
-      const warn = document.createElement("div");
-      warn.className = "ai-msg ai-bot";
-      warn.innerHTML = `<span style="color:var(--warning,#f9e2af);opacity:0.8">⚠ Reached ${MAX_TOOL_ROUNDS} tool-call rounds — stopping. Ask again to continue.</span>`;
-      container.appendChild(warn);
-    }
-  } catch (e: any) {
-    if (e?.name === "AbortError") {
-      bubble.innerHTML = '<span style="opacity:0.5">cancelled</span>';
-    } else {
-      bubble.innerHTML = `<span style="color:var(--danger)">Connection failed: ${esc(String(e?.message || e))}</span>`;
-      // Roll back the user turn so retrying doesn't duplicate it
-      chatHistory.pop();
-    }
-  } finally {
-    chatAbort = null;
-  }
-}
-
 // ── Session panel wiring (tabs / mode / health / chips / outcomes) ─
 //
 // Slice 1: the right-hand panel was restructured around a supervisor
@@ -3263,28 +2893,6 @@ function applySessionModeToDOM(mode: SessionMode): void {
       ? "Ask a question…"
       : "Describe the change…";
   }
-}
-
-/** Switch the visible tab, persist the choice, clear alert badges that
- *  make sense to clear on view (e.g. "5 new thoughts" disappears once
- *  you actually look at them). */
-function switchTab(tab: SessionTab): void {
-  localStorage.setItem(LS_ACTIVE_TAB, tab);
-  document.querySelectorAll<HTMLButtonElement>(".session-tab").forEach((btn) => {
-    const active = btn.dataset.tab === tab;
-    btn.classList.toggle("active", active);
-    if (active) btn.classList.remove("has-alert");
-  });
-  document.querySelectorAll<HTMLElement>(".session-tab-panel").forEach((panel) => {
-    panel.hidden = panel.dataset.panel !== tab;
-  });
-  // Tab-entry side-effects — thoughts panel re-loads its list so the
-  // user sees the freshest observations without waiting for the next
-  // poll. Diff tab pulls a fresh diff so RAG warnings reflect the
-  // current branch state (agents commit between switches). Cheap
-  // calls; no harm in repeating.
-  if (tab === "thoughts") loadThoughtsBanner();
-  if (tab === "diff" && currentSession) refreshSessionDiff();
 }
 
 /** Set the small badge next to a tab label (e.g. "3" next to Thoughts).
@@ -3351,22 +2959,6 @@ function startHealthPoll(): void {
   _healthTimer = window.setInterval(probeAllModels, 30_000);
 }
 
-/** Set the session activity strip's caption (e.g. "coder: writing
- *  src/routes/contact.py"). Pass null to hide the strip — default
- *  state when nothing is in flight. */
-function setActivityCaption(caption: string | null): void {
-  const strip = document.getElementById("session-activity-strip");
-  const text  = document.getElementById("session-activity-text");
-  if (!strip || !text) return;
-  if (!caption) {
-    strip.setAttribute("hidden", "");
-    text.textContent = "idle";
-    return;
-  }
-  strip.removeAttribute("hidden");
-  text.textContent = caption;
-}
-
 /** Update the header meta line — e.g. "Standard · 2/3 steps · 1 pending".
  *  Pass "" to clear. The title line above stays stable; meta changes
  *  as the session progresses. */
@@ -3395,70 +2987,6 @@ interface ActivityChip {
    *  (useful when the label is terse like "yes" but the prompt should
    *  say "yes, commit the staged changes now"). */
   replyAs?: string;
-}
-
-function addActivityChips(prompt: string, chips: ActivityChip[]): HTMLElement | null {
-  const container = document.getElementById("editor-ai-messages");
-  if (!container) return null;
-  const row = document.createElement("div");
-  row.className = "ai-msg ai-bot";
-  row.style.cssText = "padding:0.4rem 0.6rem;background:transparent;border-left:2px solid var(--info,#89b4fa)";
-  const chipsWrap = document.createElement("div");
-  chipsWrap.className = "activity-chips";
-  const promptEl = document.createElement("div");
-  promptEl.className = "activity-chips-prompt";
-  promptEl.textContent = prompt;
-  chipsWrap.appendChild(promptEl);
-  for (const chip of chips) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `activity-chip ${chip.variant || "default"}`;
-    btn.textContent = chip.label;
-    btn.addEventListener("click", () => {
-      // Spend the chip — other chips in the same row grey out too so
-      // the user can't click twice.
-      chipsWrap.querySelectorAll<HTMLButtonElement>(".activity-chip").forEach((b) => b.classList.add("spent"));
-      if (chip.onClick) {
-        chip.onClick();
-        return;
-      }
-      const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement | null;
-      if (input) {
-        input.value = chip.replyAs || chip.label;
-        aiSend();
-      }
-    });
-    chipsWrap.appendChild(btn);
-  }
-  row.appendChild(chipsWrap);
-  container.appendChild(row);
-  container.scrollTop = container.scrollHeight;
-  return row;
-}
-
-/** Drop an outcome line into the Activity stream — the compact
- *  "✓ src/x.py — added POST /contact" format that replaces pasting
- *  entire code blocks. Clicking jumps to the Diff tab (later slice
- *  will resolve the commit; for now it just switches tab). */
-function addActivityOutcome(path: string, note: string, ok = true): HTMLElement | null {
-  const container = document.getElementById("editor-ai-messages");
-  if (!container) return null;
-  const row = document.createElement("div");
-  row.className = `activity-outcome${ok ? "" : " failed"}`;
-  row.innerHTML = `
-    <span class="outcome-icon">${ok ? "✓" : "✗"}</span>
-    <span class="outcome-path">${esc(path)}</span>
-    <span class="outcome-note">${esc(note)}</span>
-  `;
-  row.addEventListener("click", () => {
-    switchTab("diff");
-    // TODO: later slice — select the matching file/commit in the
-    // Diff viewer. For now the tab switch is enough to tell the user
-    // where to look.
-  });
-  container.appendChild(row);
-  container.scrollTop = container.scrollHeight;
-  return row;
 }
 
 // ── Session lifecycle (slice 2) ───────────────────────────────────
@@ -3693,58 +3221,7 @@ function updateSessionSummaryStrip(): void {
   strip.removeAttribute("hidden");
 }
 
-/** Create a new session. Called from the empty Plan tab or (later)
- *  when the user hits Send with no active session. The title is
- *  optional — defaults to "session <id>" server-side. Exposes the
- *  helper on window so other surfaces (plan switcher, chat) can kick
- *  off a session with one call. */
-async function startSession(title: string, plan: string = ""): Promise<SessionMeta | null> {
-  try {
-    const meta = await createSession({ title, plan });
-    setCurrentSession(meta);
-    await refreshSessionDiff();
-    addAIMessage(
-      `<span style="color:var(--info,#89b4fa)">▶ Session started</span> · <code>${esc(meta.id.slice(0, 8))}</code> on branch <code>${esc(meta.branch)}</code>`,
-      "bot",
-    );
-    return meta;
-  } catch (e: any) {
-    addAIMessage(`<span style="color:var(--danger,#f38ba8)">Couldn't start session: ${esc(String(e?.message || e))}</span>`, "bot");
-    return null;
-  }
-}
-
 // ── Image generation (diffusion) ───────────────────────────────────
-
-async function aiImagePrompt(): Promise<void> {
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement;
-  const prompt = input?.value?.trim() || (window.prompt("Image prompt:") || "").trim();
-  if (!prompt) return;
-  if (input) input.value = "";
-
-  const container = document.getElementById("editor-ai-messages");
-  if (!container) return;
-
-  addAIMessage(`🎨 <em>${esc(prompt)}</em>`, "user");
-  const bubble = document.createElement("div");
-  bubble.className = "ai-msg ai-bot";
-  bubble.innerHTML = '<span style="opacity:0.6">Generating image…</span>';
-  container.appendChild(bubble);
-  container.scrollTop = container.scrollHeight;
-
-  try {
-    const r = await aiGenerateImage(prompt);
-    if (r.images?.length) {
-      bubble.innerHTML = r.images.map((src) =>
-        `<img src="${src}" style="max-width:100%;border-radius:4px;margin-bottom:4px" alt="${esc(prompt)}">`
-      ).join("");
-    } else {
-      bubble.innerHTML = `<span style="color:var(--danger)">No image returned${r.error ? ": " + esc(r.error) : ""}</span>`;
-    }
-  } catch (e: any) {
-    bubble.innerHTML = `<span style="color:var(--danger)">Image failed: ${esc(String(e?.message || e))}</span>`;
-  }
-}
 
 // Each AI code block gets indexed here so the toolbar buttons can look
 // up the raw (unescaped) content when the user clicks Apply / Copy /
@@ -4671,28 +4148,17 @@ function closeAllFiles(): void {
 (window as any).__editorOpenFile = openFile;
 (window as any).__editorSwitchFile = switchToFile;
 (window as any).__editorCloseFile = closeFile;
-(window as any).__editorCloseAll = closeAllFiles;
-(window as any).__editorCloseLeft = closeFilesToLeft;
-(window as any).__editorCloseRight = closeFilesToRight;
-(window as any).__editorCloseOthers = closeOtherFiles;
 (window as any).__editorTabCtxMenu = showTabCtxMenu;
 (window as any).__editorPopOut = popOut;
-(window as any).__editorSave = saveCurrentFile;
 (window as any).__editorToggleAI = toggleAI;
-(window as any).__editorAISend = aiSend;
-(window as any).__editorAIImage = aiImagePrompt;
-// Session panel wiring — tab switch, mode toggle, stub action buttons.
-// Exposed on window because the corresponding DOM nodes use onclick
-// attributes; refactor these to addEventListener once slice 2 lands.
-(window as any).__editorTabSwitch = switchTab;
-(window as any).__editorSessionStart = startSession;
-(window as any).__editorPlanSwitcher = openPlanSwitcher;
+// Plan panel wiring — the popup plan switcher / runner. Keeps
+// working while we figure out where plan UI lives in the new
+// threads-pane model (currently nowhere visible — popup gone).
 (window as any).__editorPlanSwitch = switchPlan;
 (window as any).__editorPlanOpen = openPlanFile;
 (window as any).__editorPlanCreate = createPlanFromModal;
 (window as any).__editorPlanRun = runCurrentPlan;
 (window as any).__editorPlanStop = stopPlanRun;
-(window as any).__editorThoughtAct = actOnThought;
 (window as any).__editorThoughtDismiss = dismissThoughtChip;
 
 // AI code-block toolbar actions — wired into the onclick= attributes
@@ -4713,13 +4179,11 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Enter to send in AI input / deps search
+// Enter-to-send in deps search. The Enter binding for the threads
+// chat input is wired separately inside the threads pane code (the
+// old editor-ai-input target is gone with the right-panel rewrite).
 document.addEventListener("keydown", (e) => {
   const target = e.target as HTMLElement;
-  if (target?.id === "editor-ai-input" && e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    aiSend();
-  }
   if (target?.id === "deps-search-input" && e.key === "Enter") {
     e.preventDefault();
     depsSearch();
