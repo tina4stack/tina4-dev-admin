@@ -11,6 +11,30 @@ import { renderQueue } from "./components/Queue.js";
 import { renderEditor } from "./components/Editor.js";
 // AI Chat is now embedded in the Code With Me editor panel
 
+// ── Customer-feedback widget exorcism ────────────────────────────────
+// The customer feedback widget should never appear on the dev admin —
+// it has its own server-side skip, client-side path guard, and cache
+// headers, but if any of those layers were bypassed by a stale cached
+// widget bundle that pre-dates the guards, the blue bubble may still
+// be in the DOM. This sweep runs IMMEDIATELY on dev admin boot and
+// periodically thereafter — any tina4-fb-btn / tina4-fb-modal it finds
+// gets removed. Cheap (querySelector), safe (only matches the widget's
+// own classes), and definitive.
+(function exorciseFeedbackWidget(): void {
+  const kill = () => {
+    document.querySelectorAll(".tina4-fb-btn, .tina4-fb-modal").forEach((el) => el.remove());
+    // Also block future bootstrap of the widget — even if the bundle
+    // somehow re-runs, the loaded flag stops it from drawing again.
+    (window as any).__tina4FeedbackLoaded = true;
+  };
+  kill();
+  // Re-sweep on next animation frame + after 500ms in case the widget
+  // bundle hasn't finished bootstrapping when this script runs first.
+  requestAnimationFrame(kill);
+  setTimeout(kill, 500);
+  setTimeout(kill, 2000);
+})();
+
 // Inject global styles
 const style = document.createElement("style");
 style.textContent = CSS;

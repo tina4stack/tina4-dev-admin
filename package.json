@@ -5,7 +5,9 @@
   "description": "Tina4 Dev Admin — Unified SPA for all 4 frameworks",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.feedback.config.ts",
+    "build:admin": "vite build",
+    "build:widget": "vite build --config vite.feedback.config.ts",
     "preview": "vite preview",
     "deploy": "node scripts/deploy.js"
   },

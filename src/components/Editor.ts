@@ -220,170 +220,55 @@ export function renderEditor(el: HTMLElement): void {
       </div>
       <div class="editor-splitter" id="editor-splitter-right" title="Drag to resize"></div>
       <div class="editor-right-panel" id="editor-right-panel">
-        <!-- Session workspace (supervisor-owned) -->
-        <div id="editor-ai-panel" class="right-panel-view">
+        <!-- Threads pane (embedded — replaces the old session+tabs UI).
+             The developer needs to see file tree + editor + chat at
+             once, so this lives in the right pane rather than a modal.
+             Two views: LIST (cards with status pills) and DETAIL
+             (chat + reply input). Same supervisor pipeline as before;
+             only the visual shell changed. -->
+        <div id="editor-ai-panel" class="right-panel-view threads-pane">
 
-          <!-- Status strip: session title + meta, collapse toggle -->
-          <div class="session-strip">
-            <div class="session-strip-row session-title-row">
-              <span class="session-title-wrap">
-                <span class="session-title" id="session-title">No active session</span>
-                <span class="session-meta" id="session-meta"></span>
-              </span>
-              <button class="btn btn-sm session-collapse-btn" id="editor-ai-toggle" onclick="window.__editorToggleAI()" title="Collapse panel">&#x25B6;</button>
-            </div>
-            <div class="session-strip-row session-plan-row">
-              <span id="editor-plan-indicator" class="session-plan-indicator"></span>
-            </div>
-            <!-- Live reachability for the 5 backing services. Clicking a
-                 dot would tell you which port / model it maps to — later
-                 slice turns these into interactive tooltips. For now the
-                 title attribute is enough. -->
-            <div class="session-strip-row session-health-row">
-              <span class="session-health-label">services</span>
-              <span class="model-dot" data-model="chat"   title="/ai — Qwen2.5-Coder-14B @ 45K YaRN (:11437)"></span>
-              <span class="model-dot" data-model="vision" title="/vision — Qwen2.5-VL-7B (:11434)"></span>
-              <span class="model-dot" data-model="embed"  title="/embed — nomic-embed-text (:11435)"></span>
-              <span class="model-dot" data-model="image"  title="/image — SDXL Turbo (:11436)"></span>
-              <span class="model-dot" data-model="rag"    title="/rag — tina4-rag (:11438)"></span>
-              <span class="session-mode-toggle" id="session-mode-toggle" role="tablist" aria-label="Chat mode">
-                <button type="button" class="mode-btn active" data-mode="supervisor" onclick="window.__editorSetMode('supervisor')" title="Supervisor delegates to agents and stages edits for review">supervisor</button>
-                <button type="button" class="mode-btn"        data-mode="qa"         onclick="window.__editorSetMode('qa')"         title="Read-only Q&amp;A — no writes to disk">Q&amp;A</button>
-              </span>
-              <button type="button" class="completion-toggle" id="completion-toggle" onclick="window.__editorToggleCompletion()" title="Inline completion (Tab to accept, Esc to dismiss)">&#9889;</button>
+          <!-- LIST VIEW header — when looking at the thread list. -->
+          <header class="threads-pane-head" id="threads-pane-head-list">
+            <h3 class="threads-pane-title">Threads</h3>
+            <button type="button" class="threads-new-btn" onclick="window.__threadsNew()" title="Start a new conversation">+ New</button>
+          </header>
+
+          <!-- DETAIL VIEW header — when inside a thread. Includes the
+               back arrow + thread title + small action menu (rename,
+               archive done, etc). -->
+          <header class="threads-pane-head threads-pane-head-detail" id="threads-pane-head-detail" hidden>
+            <button type="button" class="threads-back-btn" onclick="window.__threadsShowList()" title="Back to thread list" aria-label="Back">&larr;</button>
+            <h3 class="threads-pane-title" id="threads-detail-title">Thread</h3>
+            <button type="button" class="threads-icon-btn" onclick="window.__threadsRenameActive()" title="Rename thread" aria-label="Rename">&#9998;</button>
+            <button type="button" class="threads-icon-btn" onclick="window.__threadsArchiveActive()" title="Archive as done" aria-label="Archive">&#10003;</button>
+          </header>
+
+          <!-- LIST body: clickable rows -->
+          <div class="threads-list-view" id="threads-list-view">
+            <div class="threads-rows" id="threads-rows">
+              <div class="threads-empty">Loading…</div>
             </div>
           </div>
 
-          <!-- Tabs -->
-          <div class="session-tabs" role="tablist" aria-label="Session views">
-            <button type="button" class="session-tab active" data-tab="activity" onclick="window.__editorTabSwitch('activity')">Activity</button>
-            <button type="button" class="session-tab"        data-tab="plan"     onclick="window.__editorTabSwitch('plan')">Plan<span class="tab-badge" id="tab-badge-plan"></span></button>
-            <button type="button" class="session-tab"        data-tab="thoughts" onclick="window.__editorTabSwitch('thoughts')">Thoughts<span class="tab-badge" id="tab-badge-thoughts"></span></button>
-            <button type="button" class="session-tab"        data-tab="diff"     onclick="window.__editorTabSwitch('diff')">Diff</button>
-            <button type="button" class="session-tab"        data-tab="checks"   onclick="window.__editorTabSwitch('checks')">Checks</button>
+          <!-- DETAIL body: status pill strip + chat + reply input. The
+               #editor-ai-messages id is kept on the chat container for
+               backward compat with legacy callers (addAIMessage etc.). -->
+          <div class="threads-detail-view" id="threads-detail-view" hidden>
+            <div class="threads-detail-meta" id="threads-detail-meta"></div>
+            <div id="editor-ai-messages" class="threads-chat"></div>
+            <form class="threads-reply" id="threads-reply-form">
+              <div class="threads-reply-row">
+                <textarea
+                  id="threads-reply-input"
+                  rows="2"
+                  placeholder='Reply (Enter to send) — start with "New Topic:" to spawn a fresh thread'
+                  aria-label="Reply"></textarea>
+                <button type="submit" class="threads-send-btn" id="threads-send-btn" aria-label="Send" title="Send (Enter)">&uarr;</button>
+              </div>
+            </form>
           </div>
 
-          <!-- Tab bodies. One visible at a time; the rest get the hidden
-               attribute so scroll position is preserved between switches. -->
-          <div class="session-tab-body">
-
-            <!-- Activity: agent turns, tool results, chat bubbles. The
-                 #editor-ai-messages id is preserved so addAIMessage() et
-                 al. keep appending here without code changes. Threads
-                 live in a sidebar on the left — each thread is a
-                 sustained conversation with its own server-side
-                 history. "Session" (worktree) ceremony is gone from
-                 this view; selecting a thread is the new primitive. -->
-            <div class="session-tab-panel" data-panel="activity" id="panel-activity">
-              <div class="session-summary-strip" id="session-summary-strip" hidden>
-                <span class="summary-chip" id="summary-chip-session"></span>
-                <span class="summary-spacer"></span>
-                <button type="button" class="summary-toggle" onclick="window.__editorTabSwitch('diff')">view diff</button>
-              </div>
-              <div class="thread-activity-row">
-                <aside class="thread-sidebar" id="thread-sidebar" aria-label="Conversation threads">
-                  <div class="thread-sidebar-head">
-                    <span class="thread-sidebar-title">Threads</span>
-                    <button type="button" class="thread-new-btn" id="thread-new-btn"
-                            onclick="window.__editorThreadNew()"
-                            title="Start a new conversation">+ New</button>
-                  </div>
-                  <div class="thread-list" id="thread-list">
-                    <div class="thread-list-empty">No threads yet</div>
-                  </div>
-                </aside>
-                <div id="editor-ai-messages" class="editor-ai-messages">
-                  <div class="ai-msg ai-bot">Pick a thread or start a new one to begin.</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Plan: current plan indicator + steps (populated later).
-                 Empty state nudges toward creating a plan since working
-                 from a plan is non-negotiable for supervisor mode. -->
-            <div class="session-tab-panel" data-panel="plan" id="panel-plan" hidden>
-              <div class="panel-empty" id="plan-empty-state">
-                <div class="panel-empty-title">No active plan</div>
-                <div class="panel-empty-body">Working from a plan is required in supervisor mode. A plan gives the agents a concrete goal to ground against and makes each commit point at a real step.</div>
-                <div class="panel-empty-actions">
-                  <button class="btn btn-sm btn-primary" onclick="window.__editorOpenPlanSwitcher()">Create plan</button>
-                  <button class="btn btn-sm" onclick="window.__editorOpenPlanSwitcher()">Browse plans</button>
-                </div>
-              </div>
-              <div class="panel-content" id="plan-content-area" hidden></div>
-            </div>
-
-            <!-- Thoughts: supervisor's "by the way…" observations.
-                 Preserving the #editor-thoughts-banner id lets
-                 loadThoughtsBanner() keep working unchanged. The
-                 header row offers bulk actions when the engine
-                 floods with false positives — one click to clear
-                 every currently-visible thought. -->
-            <div class="session-tab-panel" data-panel="thoughts" id="panel-thoughts" hidden>
-              <div class="thoughts-toolbar" id="thoughts-toolbar" hidden>
-                <span class="thoughts-toolbar-count" id="thoughts-toolbar-count">0 observations</span>
-                <span class="thoughts-toolbar-spacer"></span>
-                <button class="btn btn-sm thoughts-toolbar-clear" onclick="window.__editorThoughtsClearAll()" title="Dismiss every visible observation. Remembered across reloads so they don't resurface.">Clear all</button>
-              </div>
-              <div id="editor-thoughts-banner" class="editor-thoughts-banner" style="display:none"></div>
-              <div class="panel-empty" id="thoughts-empty-state">
-                <div class="panel-empty-title">No thoughts yet</div>
-                <div class="panel-empty-body">The supervisor surfaces observations and risks here as work progresses. If an observation isn't true, dismiss it — the panel won't show it again.</div>
-              </div>
-            </div>
-
-            <!-- Diff: populated once the supervisor session has commits
-                 on its working branch. Empty-state shows when there's
-                 no session or the session is empty; otherwise the
-                 live diff + RAG warnings render here. -->
-            <div class="session-tab-panel" data-panel="diff" id="panel-diff" hidden>
-              <div class="panel-empty" id="diff-empty-state">
-                <div class="panel-empty-title">No proposal to review</div>
-                <div class="panel-empty-body">When the supervisor hands work back, staged diffs show here for per-file accept/reject.</div>
-              </div>
-              <div class="panel-content" id="diff-content-area" hidden>
-                <div class="diff-summary" id="diff-summary"></div>
-                <div class="diff-files" id="diff-files"></div>
-                <div class="diff-warnings" id="diff-warnings"></div>
-                <div class="diff-commits" id="diff-commits"></div>
-              </div>
-            </div>
-
-            <!-- Checks: syntax / tests / review results per step. -->
-            <div class="session-tab-panel" data-panel="checks" id="panel-checks" hidden>
-              <div class="panel-empty">
-                <div class="panel-empty-title">No checks run</div>
-                <div class="panel-empty-body">Syntax, tests, and review verdicts populate per plan step as agents commit work.</div>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Agent activity strip: single line summary of the current
-               turn (who's active, what they're doing). Hidden when idle. -->
-          <div class="session-activity-strip" id="session-activity-strip" hidden>
-            <span class="activity-dot"></span>
-            <span class="activity-text" id="session-activity-text">idle</span>
-          </div>
-
-          <!-- Input + action bar. Revise / Apply / Cancel are disabled
-               until a session has a proposal staged (later slice wires
-               them against /supervise endpoints). -->
-          <div class="editor-ai-input-area">
-            <textarea id="editor-ai-input" class="input session-input" placeholder="Describe the change (supervisor will propose a plan if none is active)..." rows="2"></textarea>
-            <div class="session-action-row">
-              <button class="btn btn-sm btn-primary session-btn-send" onclick="window.__editorAISend()" id="btn-session-send">Send</button>
-              <button class="btn btn-sm" onclick="window.__editorAIExplain()" title="Explain selected code">Explain</button>
-              <!-- Image button removed — say "generate image of <prompt>"
-                   in the chat instead. aiSend() detects the intent and
-                   routes to the image model. One less button, same
-                   capability. -->
-              <span class="action-spacer"></span>
-              <button class="btn btn-sm" id="btn-session-revise" onclick="window.__editorSessionRevise()" disabled title="Ask the supervisor to revise the current proposal">Revise</button>
-              <button class="btn btn-sm btn-primary" id="btn-session-apply" onclick="window.__editorSessionApply()" disabled title="Apply the supervisor's proposal to the working tree">Apply</button>
-              <button class="btn btn-sm" id="btn-session-cancel" onclick="window.__editorSessionCancel()" disabled title="Cancel the active session">✕</button>
-            </div>
-          </div>
         </div>
         <!-- Dependency search (shown for package files) -->
         <div id="editor-deps-panel" class="right-panel-view" style="display:none">
@@ -1454,243 +1339,149 @@ function getEditorCSS(): string {
     .editor-ai-header { padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border, #313244); flex-shrink: 0; }
     .editor-ai-messages { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
-    /* ── Session panel restructure ─────────────────────────────
-       The right-panel is now organised around a session (one
-       supervisor-owned unit of work) rather than a chat log.
-       Zones, top to bottom:
-         1. status strip  — title, plan, health, mode
-         2. tab bar       — Activity / Plan / Thoughts / Diff / Checks
-         3. tab body      — one panel visible, rest hidden
-         4. activity strip — collapsed current-turn indicator
-         5. action bar    — input + Send/Revise/Apply/Cancel
-       The Activity tab hosts the existing #editor-ai-messages
-       container so legacy chat rendering keeps working untouched
-       while the rest of the panel rebuilds around it. */
+    /* ── Threads pane (embedded in right panel) ── */
+    .threads-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+    .threads-pane-head {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.55rem 0.7rem; background: #181825;
+      border-bottom: 1px solid #313244; flex-shrink: 0;
+    }
+    .threads-pane-head[hidden] { display: none; }
+    .threads-pane-title {
+      flex: 1; margin: 0; font-size: 0.85rem; font-weight: 600;
+      color: #cdd6f4;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .threads-back-btn, .threads-icon-btn {
+      background: transparent; border: 1px solid #313244; color: #cdd6f4;
+      width: 26px; height: 26px; padding: 0; border-radius: 4px;
+      font-size: 0.85rem; line-height: 1; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .threads-back-btn:hover, .threads-icon-btn:hover { background: rgba(137,180,250,0.12); border-color: #89b4fa; }
+    .threads-new-btn {
+      background: transparent; border: 1px solid #89b4fa; color: #89b4fa;
+      padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer;
+      font-size: 0.72rem; font-weight: 600; line-height: 1.4;
+    }
+    .threads-new-btn:hover { background: rgba(137,180,250,0.12); }
 
-    .session-strip { flex-shrink: 0; border-bottom: 1px solid var(--border, #313244); padding: 0.4rem 0.5rem 0.3rem; display: flex; flex-direction: column; gap: 0.25rem; }
-    .session-strip-row { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
-    .session-title-row { justify-content: space-between; }
-    .session-title-wrap { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.15; }
-    .session-title { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .session-meta { font-size: 0.65rem; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .session-meta:empty { display: none; }
-    .session-collapse-btn { font-size: 0.6rem; padding: 2px 6px; flex-shrink: 0; }
-    .session-plan-row { font-size: 0.68rem; opacity: 0.85; min-height: 0; }
-    .session-plan-row:empty, .session-plan-indicator:empty { display: none; }
-    .session-plan-indicator { min-width: 0; overflow: hidden; display: inline-flex; align-items: center; gap: 0.4rem; flex: 1; }
+    /* List + detail bodies share the flex shell — only one visible at a time. */
+    .threads-list-view, .threads-detail-view {
+      flex: 1; display: flex; flex-direction: column; min-height: 0;
+    }
+    .threads-list-view[hidden], .threads-detail-view[hidden] { display: none; }
+    .threads-rows { flex: 1; overflow-y: auto; padding: 0.2rem 0; }
+    .threads-empty {
+      padding: 1.5rem 0.8rem; text-align: center; color: #9399b2;
+      font-size: 0.78rem; font-style: italic;
+    }
 
-    /* Health row — tiny dots per service. Grey = unknown, green = up,
-       red = down. Flex-end so the mode toggle tucks to the right. */
-    .session-health-row { gap: 0.3rem; }
-    .session-health-label { font-size: 0.6rem; opacity: 0.45; text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.15rem; }
-    .model-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted, #64748b); display: inline-block; flex-shrink: 0; transition: background 0.2s; position: relative; }
-    .model-dot.up   { background: var(--success, #a6e3a1); }
-    .model-dot.down { background: var(--danger,  #f38ba8); }
-    .model-dot:hover { outline: 1px solid rgba(255,255,255,0.2); outline-offset: 2px; }
+    /* Row cards — denser than the modal version since the pane is narrower (280px). */
+    .thread-row-card {
+      padding: 0.55rem 0.7rem; cursor: pointer;
+      border-bottom: 1px solid #1e1e2e;
+      transition: background 0.12s;
+      position: relative;
+    }
+    .thread-row-card:hover { background: #181825; }
+    .thread-row-card.active { background: rgba(137,180,250,0.1); border-left: 2px solid #89b4fa; padding-left: calc(0.7rem - 2px); }
+    /* Per-row archive × — invisible until the row is hovered so the
+       list stays clean. Stop-propagation prevents the click from also
+       triggering the row's open-detail handler. */
+    .thread-row-archive {
+      position: absolute; top: 4px; right: 4px;
+      background: transparent; border: none;
+      color: #9399b2; cursor: pointer;
+      width: 18px; height: 18px; padding: 0; line-height: 1;
+      border-radius: 3px; font-size: 0.85rem;
+      opacity: 0; transition: opacity 0.12s, background 0.12s;
+    }
+    .thread-row-card:hover .thread-row-archive { opacity: 0.7; }
+    .thread-row-archive:hover { opacity: 1 !important; background: rgba(243,139,168,0.15); color: #f38ba8; }
+    .thread-row-line1 {
+      display: flex; align-items: center; gap: 0.4rem;
+      margin-bottom: 0.25rem; font-size: 0.65rem; min-width: 0;
+    }
+    .thread-row-date { color: #9399b2; font-family: ui-monospace, "SF Mono", monospace; font-size: 0.6rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .thread-row-count { margin-left: auto; color: #9399b2; flex-shrink: 0; }
+    .thread-row-preview {
+      font-size: 0.78rem; color: #cdd6f4; line-height: 1.35;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden; text-overflow: ellipsis; min-width: 0; overflow-wrap: anywhere;
+    }
 
-    /* Mode toggle — segmented pair. Only one active at a time; the
-       inactive is subdued so the eye lands on the current mode. */
-    .session-mode-toggle { margin-left: auto; display: inline-flex; border: 1px solid var(--border, #313244); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
-    .session-mode-toggle .mode-btn { background: transparent; border: none; color: var(--muted, #9399b2); font-size: 0.62rem; padding: 2px 7px; cursor: pointer; letter-spacing: 0.01em; }
-    .session-mode-toggle .mode-btn:hover { background: rgba(255,255,255,0.04); color: var(--text, #cdd6f4); }
-    .session-mode-toggle .mode-btn.active { background: var(--info, #89b4fa); color: #1e1e2e; font-weight: 600; }
+    /* Status pills (reference UX text labels). */
+    .status-pill {
+      display: inline-block; padding: 0.05rem 0.4rem; border-radius: 3px;
+      font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; line-height: 1.4;
+      border: 1px solid transparent; flex-shrink: 0;
+    }
+    .status-pill[data-status="done"]              { background: rgba(166,227,161,0.15); color: #a6e3a1; border-color: rgba(166,227,161,0.3); }
+    .status-pill[data-status="awaiting_customer"] { background: rgba(203,166,247,0.15); color: #cba6f7; border-color: rgba(203,166,247,0.3); }
+    .status-pill[data-status="wont_do"]           { background: rgba(147,153,178,0.15); color: #9399b2; border-color: rgba(147,153,178,0.3); }
+    .status-pill[data-status="blocked"]           { background: rgba(243,139,168,0.15); color: #f38ba8; border-color: rgba(243,139,168,0.3); }
+    .status-pill[data-status="feedback"]          { background: rgba(250,179,135,0.15); color: #fab387; border-color: rgba(250,179,135,0.3); }
+    .status-pill[data-status="running"]           { background: rgba(137,180,250,0.15); color: #89b4fa; border-color: rgba(137,180,250,0.3); animation: pill-pulse 1.4s ease-in-out infinite; }
+    .status-pill[data-status="idle"]              { background: rgba(147,153,178,0.08); color: #9399b2; border-color: rgba(147,153,178,0.2); }
+    @keyframes pill-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
-    /* Completion toggle — small ⚡ button next to the mode toggle.
-       Three visual states: on-plan (primary color), off-plan (dimmed
-       with an off-plan dot), disabled (strike-through). Click to
-       flip enabled/disabled; hover tooltip carries the full status. */
-    .completion-toggle { background: transparent; border: 1px solid var(--border, #313244); color: var(--warning, #f9e2af); font-size: 0.62rem; padding: 2px 6px; border-radius: 4px; cursor: pointer; line-height: 1; flex-shrink: 0; }
-    .completion-toggle:hover { background: rgba(249,226,175,0.08); }
-    .completion-toggle.on-plan { color: var(--info, #89b4fa); border-color: rgba(137,180,250,0.35); background: rgba(137,180,250,0.08); }
-    .completion-toggle.off-plan { color: var(--muted, #9399b2); border-color: var(--border, #313244); }
-    .completion-toggle.disabled { color: var(--muted, #9399b2); opacity: 0.5; text-decoration: line-through; }
-
-    /* Tab bar — flat, underline on active. Kept terse; each tab is
-       a single word so they all fit at 280px panel width. */
-    .session-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border, #313244); background: transparent; }
-    .session-tab { flex: 1; background: transparent; border: none; color: var(--muted, #9399b2); padding: 6px 4px; font-size: 0.7rem; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; position: relative; white-space: nowrap; }
-    .session-tab:hover { color: var(--text, #cdd6f4); }
-    .session-tab.active { color: var(--text, #cdd6f4); border-bottom-color: var(--info, #89b4fa); }
-    .tab-badge { display: inline-block; min-width: 14px; padding: 0 4px; margin-left: 4px; background: var(--surface, #313244); color: var(--text, #cdd6f4); border-radius: 7px; font-size: 0.6rem; line-height: 14px; vertical-align: baseline; }
-    .tab-badge:empty { display: none; }
-    .session-tab.has-alert .tab-badge { background: var(--warning, #f9e2af); color: #1e1e2e; }
-
-    /* Tab bodies — flex column, one visible at a time. Each panel
-       owns its own scroll so switching tabs doesn't reset position. */
-    .session-tab-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
-    .session-tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
-    .session-tab-panel[hidden] { display: none; }
-
-    /* Panel empty-state pattern — consistent shape across Plan /
-       Thoughts / Diff / Checks. Vertically centered, terse body,
-       optional action buttons. */
-    .panel-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 1rem 0.75rem; text-align: center; gap: 0.4rem; color: var(--muted, #9399b2); }
-    .panel-empty-title { font-size: 0.78rem; font-weight: 600; color: var(--text, #cdd6f4); }
-    .panel-empty-body { font-size: 0.7rem; line-height: 1.4; max-width: 240px; }
-    .panel-empty-actions { display: flex; gap: 0.35rem; margin-top: 0.4rem; }
-    .panel-empty-actions .btn { font-size: 0.68rem; padding: 3px 10px; }
-    .panel-content { flex: 1; overflow-y: auto; padding: 0.5rem; }
-
-    /* Activity strip above the input — shows who's currently working
-       on this turn. Hidden when idle to avoid visual noise. */
-    .session-activity-strip { flex-shrink: 0; display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.6rem; font-size: 0.66rem; border-top: 1px solid var(--border, #313244); background: rgba(137,180,250,0.06); color: var(--muted, #9399b2); }
-    .session-activity-strip .activity-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--info, #89b4fa); animation: session-pulse 1.1s ease-in-out infinite; flex-shrink: 0; }
-    .session-activity-strip .activity-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    @keyframes session-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-
-    /* Action row under the input — Send on the left (primary),
-       secondary action on the right (Revise/Apply/Cancel appear
-       only once a session has a proposal staged). */
-    .session-action-row { display: flex; gap: 4px; margin-top: 4px; align-items: center; }
-    .session-action-row .btn { font-size: 0.68rem; padding: 3px 9px; }
-    .session-action-row .session-btn-send { flex: 0 0 auto; min-width: 58px; }
-    .session-action-row .action-spacer { flex: 1; }
-    .session-action-row .btn:disabled { opacity: 0.3; cursor: not-allowed; }
-    .session-input { width: 100%; box-sizing: border-box; display: block; resize: vertical; font-size: 0.8rem; min-height: 36px; }
-
-    /* Tweaks to the existing chat styles now that they live inside a
-       tab panel — the Activity panel has its own padding so the list
-       container can sit flush. */
-    .session-tab-panel[data-panel="activity"] .editor-ai-messages { padding: 0.5rem; }
+    /* Detail body */
+    .threads-detail-meta {
+      padding: 0.45rem 0.7rem; border-bottom: 1px solid #313244;
+      display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
+      font-size: 0.7rem; color: #9399b2; flex-wrap: wrap;
+    }
+    .threads-chat {
+      flex: 1; overflow-y: auto; padding: 0.6rem;
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .threads-chat .ai-msg { padding: 0.45rem 0.6rem; border-radius: 6px; max-width: 92%; line-height: 1.4; font-size: 0.8rem; word-wrap: break-word; overflow-wrap: anywhere; }
+    .threads-chat .ai-user { align-self: flex-end; background: rgba(137,180,250,0.18); color: #cdd6f4; }
+    .threads-chat .ai-bot  { align-self: flex-start; background: #1e1e2e; color: #cdd6f4; }
+    /* Action pills — clickable shortcuts under an assistant bubble or
+       in empty-state. Pills are suggestions: the user can always type
+       a free answer instead. Click sends pill text as next user turn. */
+    .action-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; align-self: flex-start; max-width: 92%; }
+    .action-pills.spent { opacity: 0.45; pointer-events: none; }
+    .action-pill {
+      background: rgba(137,180,250,0.1); border: 1px solid rgba(137,180,250,0.35);
+      color: #cdd6f4; padding: 0.2rem 0.7rem; border-radius: 12px;
+      font-size: 0.72rem; line-height: 1.4; cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, transform 0.08s;
+      font-family: inherit;
+    }
+    .action-pill:hover:not(:disabled) { background: rgba(137,180,250,0.22); border-color: #89b4fa; }
+    .action-pill:active:not(:disabled) { transform: scale(0.97); }
+    .action-pill:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+    .action-pill-primary {
+      background: #89b4fa; color: #1e1e2e; border-color: transparent; font-weight: 600;
+    }
+    .action-pill-primary:hover:not(:disabled) { background: #b4befe; }
+    .threads-reply { padding: 0.5rem 0.6rem 0.6rem; border-top: 1px solid #313244; flex-shrink: 0; }
+    .threads-reply-row { display: flex; gap: 0.4rem; align-items: flex-end; }
+    .threads-reply-row textarea {
+      flex: 1; resize: vertical; min-height: 38px;
+      background: #11111b; color: #cdd6f4; border: 1px solid #313244;
+      border-radius: 16px; padding: 0.45rem 0.7rem;
+      font-family: inherit; font-size: 0.78rem; line-height: 1.4;
+    }
+    .threads-reply-row textarea:focus { outline: none; border-color: #89b4fa; }
+    .threads-send-btn {
+      width: 34px; height: 34px; border-radius: 50%; border: none;
+      background: #1e1e2e; color: #cdd6f4; font-size: 1rem;
+      cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; line-height: 1; padding: 0;
+    }
+    .threads-send-btn:hover { background: #313244; }
+    .threads-send-btn:disabled { opacity: 0.4; cursor: wait; }
 
     /* Thread sidebar — left-rail list of conversations inside the
        Activity panel. Each thread row is one line: status pip, title,
        message count. Active thread row has a brighter background. The
        row itself is clickable (switches thread); right-click opens
        rename. The "+ New" button sits at the top in the header. */
-    .thread-activity-row { display: flex; flex: 1; min-height: 0; }
-    .thread-sidebar { width: 180px; flex-shrink: 0; display: flex; flex-direction: column;
-                      border-right: 1px solid var(--border, #313244); background: rgba(0,0,0,0.12); }
-    .thread-sidebar-head { display: flex; align-items: center; justify-content: space-between;
-                           padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border, #313244);
-                           font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
-                           color: var(--muted, #9399b2); }
-    .thread-sidebar-title { font-weight: 600; }
-    .thread-new-btn { background: transparent; border: 1px solid var(--border, #313244);
-                      color: var(--text, #cdd6f4); font-size: 0.7rem; padding: 1px 6px;
-                      border-radius: 3px; cursor: pointer; }
-    .thread-new-btn:hover { background: rgba(137,180,250,0.15); border-color: var(--info, #89b4fa); }
-    .thread-list { flex: 1; overflow-y: auto; padding: 0.2rem 0; }
-    .thread-list-empty { padding: 0.5rem; font-size: 0.7rem; color: var(--muted, #9399b2);
-                         text-align: center; font-style: italic; }
-    .thread-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem;
-                  font-size: 0.72rem; cursor: pointer; border-left: 2px solid transparent;
-                  line-height: 1.3; }
-    .thread-row:hover { background: rgba(137,180,250,0.08); }
-    .thread-row.active { background: rgba(137,180,250,0.15); border-left-color: var(--info, #89b4fa); }
-    .thread-row .thread-pip { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-                              background: var(--muted, #9399b2); }
-    .thread-row[data-status="running"] .thread-pip { background: var(--info, #89b4fa);
-                                                      animation: thread-pulse 1.2s ease-in-out infinite; }
-    .thread-row[data-status="needs_input"] .thread-pip { background: var(--warning, #f9e2af); }
-    .thread-row[data-status="error"] .thread-pip { background: var(--danger, #f38ba8); }
-    .thread-row[data-status="done"] .thread-pip { background: var(--success, #a6e3a1); }
-    .thread-row[data-status="idle"] .thread-pip { background: var(--muted, #9399b2); opacity: 0.5; }
-    .thread-row .thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-                                white-space: nowrap; color: var(--text, #cdd6f4); }
-    .thread-row .thread-count { font-size: 0.65rem; color: var(--muted, #9399b2); flex-shrink: 0; }
-    .thread-row input.thread-title-edit { background: rgba(0,0,0,0.3); border: 1px solid var(--info, #89b4fa);
-                                          color: var(--text, #cdd6f4); font-size: 0.72rem;
-                                          padding: 1px 4px; border-radius: 2px; width: 100%; min-width: 0; }
-    @keyframes thread-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-    /* Decision chips — inline quick-action buttons the supervisor
-       can emit alongside a question ("commit now or keep going?").
-       One click beats typing the answer. Chips share a row, wrap
-       to a new line when they overflow. */
-    .activity-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.3rem 0 0.2rem; align-items: center; }
-    .activity-chips-prompt { font-size: 0.72rem; line-height: 1.4; color: var(--text, #cdd6f4); flex-basis: 100%; margin-bottom: 0.2rem; }
-    .activity-chip { background: rgba(137,180,250,0.1); border: 1px solid rgba(137,180,250,0.35); color: var(--text, #cdd6f4); padding: 3px 10px; border-radius: 12px; font-size: 0.68rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.15s; line-height: 1.3; }
-    .activity-chip:hover { background: rgba(137,180,250,0.22); border-color: var(--info, #89b4fa); }
-    .activity-chip.primary { background: var(--info, #89b4fa); color: #1e1e2e; border-color: transparent; font-weight: 600; }
-    .activity-chip.primary:hover { background: #b4befe; }
-    .activity-chip.subdued { opacity: 0.65; }
-    .activity-chip.subdued:hover { opacity: 1; }
-    .activity-chip.spent { opacity: 0.35; pointer-events: none; text-decoration: line-through; }
-
-    /* Outcome line — the "✓ src/x.py — added Y" summary that
-       replaces code-block dumps in the Activity stream. Clicking
-       jumps to the Diff tab for that commit (later slice). */
-    .activity-outcome { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.5rem; font-size: 0.72rem; border-left: 2px solid var(--success, #a6e3a1); background: rgba(166,227,161,0.06); border-radius: 0 3px 3px 0; cursor: pointer; }
-    .activity-outcome:hover { background: rgba(166,227,161,0.12); }
-    .activity-outcome .outcome-icon { color: var(--success, #a6e3a1); flex-shrink: 0; }
-    .activity-outcome .outcome-path { font-family: "SF Mono", Menlo, monospace; font-size: 0.68rem; color: var(--info, #89b4fa); }
-    .activity-outcome .outcome-note { color: var(--muted, #9399b2); font-size: 0.68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-    .activity-outcome.failed { border-left-color: var(--danger, #f38ba8); background: rgba(243,139,168,0.08); }
-    .activity-outcome.failed .outcome-icon { color: var(--danger, #f38ba8); }
-
-    /* Session summary strip at the top of Activity — "3 files · 5 commits"
-       collapsed view of cumulative session state. */
-    .session-summary-strip { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; font-size: 0.66rem; border-bottom: 1px solid var(--border, #313244); background: rgba(255,255,255,0.02); color: var(--muted, #9399b2); flex-shrink: 0; }
-    .session-summary-strip:empty, .session-summary-strip[hidden] { display: none; }
-    .session-summary-strip .summary-chip { display: inline-flex; align-items: center; gap: 0.2rem; }
-    .session-summary-strip .summary-chip strong { color: var(--text, #cdd6f4); font-weight: 600; }
-    .session-summary-strip .summary-spacer { flex: 1; }
-    .session-summary-strip .summary-toggle { background: transparent; border: none; color: var(--info, #89b4fa); cursor: pointer; font-size: 0.65rem; padding: 0; }
-    .session-summary-strip .summary-toggle:hover { text-decoration: underline; }
-
-    /* Thoughts tab toolbar — small header with count + "Clear all".
-       Shown only when there's something to clear. The clear button
-       carries warning color so it reads as a power-action, not a
-       casual secondary action. */
-    .thoughts-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem; font-size: 0.66rem; border-bottom: 1px solid var(--border, #313244); color: var(--muted, #9399b2); flex-shrink: 0; }
-    .thoughts-toolbar[hidden] { display: none; }
-    .thoughts-toolbar-count { color: var(--text, #cdd6f4); font-weight: 500; }
-    .thoughts-toolbar-spacer { flex: 1; }
-    .thoughts-toolbar-clear { font-size: 0.65rem; padding: 2px 8px; color: var(--warning, #f9e2af); border-color: rgba(249,226,175,0.35); }
-    .thoughts-toolbar-clear:hover { background: rgba(249,226,175,0.1); }
-
-    /* ── Diff tab content ─────────────────────────────────────── */
-    .diff-summary { font-size: 0.7rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border, #313244); color: var(--muted, #9399b2); }
-    .diff-summary strong { color: var(--text, #cdd6f4); font-weight: 600; }
-    .diff-summary .diff-sha { font-family: "SF Mono", Menlo, monospace; opacity: 0.55; }
-
-    /* File list — one row per changed file, clickable to jump into
-       the editor, status dot + additions/deletions on the right. */
-    .diff-files { padding: 0.3rem 0; }
-    .diff-file-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; cursor: pointer; border-left: 2px solid transparent; font-size: 0.72rem; }
-    .diff-file-row:hover { background: rgba(255,255,255,0.03); border-left-color: var(--info, #89b4fa); }
-    .diff-file-status { width: 16px; text-align: center; font-family: "SF Mono", Menlo, monospace; font-size: 0.65rem; font-weight: 700; flex-shrink: 0; }
-    .diff-file-status.s-A { color: var(--success, #a6e3a1); }
-    .diff-file-status.s-M { color: var(--info, #89b4fa); }
-    .diff-file-status.s-D { color: var(--danger, #f38ba8); }
-    .diff-file-status.s-R { color: var(--warning, #f9e2af); }
-    .diff-file-path { flex: 1; font-family: "SF Mono", Menlo, monospace; font-size: 0.68rem; color: var(--text, #cdd6f4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .diff-file-stats { flex-shrink: 0; font-family: "SF Mono", Menlo, monospace; font-size: 0.65rem; display: flex; gap: 0.3rem; }
-    .diff-file-stats .add { color: var(--success, #a6e3a1); }
-    .diff-file-stats .del { color: var(--danger, #f38ba8); }
-    .diff-file-warn { color: var(--warning, #f9e2af); font-size: 0.7rem; flex-shrink: 0; }
-
-    /* Warnings block — RAG-backed convention/risk/info flags, grouped
-       by path, with reference link when available. Rendered below the
-       file list so the user scans "what changed" first and "what might
-       be wrong" second. */
-    .diff-warnings { margin-top: 0.3rem; padding: 0.3rem 0.5rem; }
-    .diff-warnings:empty { display: none; }
-    .diff-warnings-header { font-size: 0.66rem; font-weight: 600; color: var(--warning, #f9e2af); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.3rem; }
-    .diff-warning-item { border-left: 2px solid var(--warning, #f9e2af); padding: 0.35rem 0.5rem; margin-bottom: 0.3rem; background: rgba(249,226,175,0.04); border-radius: 0 3px 3px 0; font-size: 0.72rem; line-height: 1.4; }
-    .diff-warning-item.risk { border-left-color: var(--danger, #f38ba8); background: rgba(243,139,168,0.05); }
-    .diff-warning-item.info { border-left-color: var(--info, #89b4fa); background: rgba(137,180,250,0.04); }
-    .diff-warning-path { font-family: "SF Mono", Menlo, monospace; font-size: 0.65rem; color: var(--muted, #9399b2); margin-bottom: 0.2rem; }
-    .diff-warning-kind { text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.6rem; font-weight: 700; margin-right: 0.3rem; color: var(--warning, #f9e2af); }
-    .diff-warning-item.risk .diff-warning-kind { color: var(--danger, #f38ba8); }
-    .diff-warning-item.info .diff-warning-kind { color: var(--info, #89b4fa); }
-    .diff-warning-msg { color: var(--text, #cdd6f4); }
-    .diff-warning-ref { font-size: 0.65rem; color: var(--muted, #9399b2); margin-top: 0.25rem; font-style: italic; }
-    .diff-warning-ref a { color: var(--info, #89b4fa); text-decoration: none; }
-    .diff-warning-ref a:hover { text-decoration: underline; }
-
-    /* Commit log at the bottom — terse. Each row: short sha + subject
-       + trailer summary. Clicking could open the git commit view in a
-       later slice; for now it's informational. */
-    .diff-commits { padding: 0.3rem 0.5rem; border-top: 1px solid var(--border, #313244); margin-top: 0.3rem; }
-    .diff-commits:empty { border-top: none; margin-top: 0; }
-    .diff-commits-header { font-size: 0.66rem; font-weight: 600; color: var(--muted, #9399b2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.3rem; }
-    .diff-commit-row { display: flex; gap: 0.4rem; padding: 0.2rem 0; font-size: 0.68rem; align-items: baseline; }
-    .diff-commit-sha { font-family: "SF Mono", Menlo, monospace; font-size: 0.62rem; color: var(--muted, #9399b2); flex-shrink: 0; width: 50px; }
-    .diff-commit-subject { flex: 1; color: var(--text, #cdd6f4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .diff-commit-agent { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--info, #89b4fa); flex-shrink: 0; }
-
     /* AI code-block toolbar — every fenced block in an AI reply gets one */
     .ai-codeblock { margin: 0.5rem 0; border: 1px solid var(--border, #313244); border-radius: 6px; overflow: hidden; background: #11111b; }
     .ai-codeblock-bar { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border, #313244); font-size: 0.7rem; }
@@ -1713,16 +1504,6 @@ function getEditorCSS(): string {
     .ai-codeblock-collapsed .ai-codeblock-btn { border: none; padding: 0; font-size: 0.7rem; color: var(--info,#89b4fa); text-decoration: underline; background: transparent; }
     .ai-codeblock-collapsed .ai-codeblock-btn:hover { background: transparent; opacity: 0.8; }
     .ai-codeblock-collapsed pre { border-top: 1px solid var(--border,#313244); margin-top: 0.35rem; background: #11111b; border-radius: 4px; }
-    .editor-ai-input-area { padding: 0.5rem; border-top: 1px solid var(--border, #313244); flex-shrink: 0; }
-    /* Thoughts banner — the Rust supervisor's proactive observations.
-       One chip per thought; click body to ask the AI about it, × to dismiss. */
-    .editor-thoughts-banner { border-top: 1px solid var(--border,#313244); padding: 0.4rem 0.5rem; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; flex-shrink: 0; }
-    .editor-thought-chip { font-size: 0.7rem; background: rgba(249,226,175,0.08); border-left: 2px solid var(--warning,#f9e2af); padding: 0.35rem 0.5rem; border-radius: 3px; display: flex; gap: 0.4rem; align-items: flex-start; }
-    .editor-thought-chip-body { flex: 1; cursor: pointer; line-height: 1.35; }
-    .editor-thought-chip-body:hover { text-decoration: underline; text-decoration-style: dotted; }
-    .editor-thought-chip-close { background: transparent; border: none; color: var(--muted,#9399b2); cursor: pointer; font-size: 0.85rem; padding: 0 0.25rem; line-height: 1; }
-    .editor-thought-chip-close:hover { color: var(--text,#cdd6f4); }
-
     .ai-msg { padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.8rem; line-height: 1.5; word-wrap: break-word; }
     .ai-msg.ai-user { background: var(--info, #89b4fa); color: #1e1e2e; align-self: flex-end; max-width: 90%; }
     .ai-msg.ai-bot { background: var(--surface, #313244); color: var(--text, #cdd6f4); max-width: 95%; }
@@ -2525,25 +2306,455 @@ async function renameThreadInline(threadId: string): Promise<void> {
  *  clicks + New on the first interaction. */
 async function bootstrapThreads(): Promise<void> {
   await refreshThreadList();
+  // Embedded pane always defaults to the list view; the developer
+  // picks which thread to enter. (The modal version auto-jumped into
+  // the last-active thread on open — but the pane is always visible
+  // so opening doesn't happen, and presenting the list as the home
+  // gives an at-a-glance inbox view of what needs attention.)
   if (!threadList.length) {
     activeThreadId = null;
-    paintThreadMessages("__nope__");
+    renderThreadsListView();
     return;
   }
-  let pickId: string | null = null;
-  try { pickId = localStorage.getItem(LS_ACTIVE_THREAD); } catch {}
-  if (!pickId || !threadList.some((t) => t.id === pickId)) {
-    pickId = [...threadList].sort((a, b) =>
-      (b.last_message_at || "").localeCompare(a.last_message_at || "")
-    )[0].id;
-  }
-  await switchThread(pickId);
+  // Restore last-active thread id locally so a Send (which assumes
+  // activeThreadId is set) still works after reload — but stay on
+  // the list view visually.
+  try {
+    const pickId = localStorage.getItem(LS_ACTIVE_THREAD);
+    if (pickId && threadList.some((t) => t.id === pickId)) {
+      activeThreadId = pickId;
+    }
+  } catch {}
+  threadsShowList();
 }
 
 // Expose for the inline HTML onclick handlers in the sidebar.
 (window as any).__editorThreadNew = () => { void newThread(); };
 (window as any).__editorThreadSwitch = (id: string) => { void switchThread(id); };
 (window as any).__editorThreadRename = (id: string) => { void renameThreadInline(id); };
+
+// ── Threads pane (embedded in the right panel) ──────────────────────
+//
+// Two views inside the pane: LIST and DETAIL. The pane is always
+// visible — no modal, no open/close. switchView() toggles the right
+// pair of header + body elements. Same supervisor pipeline as before;
+// only the visual shell changed.
+
+/** Status pill copy — matches the reference UX (uppercase text labels
+ *  not coloured balls). Map is server-side status_hint → display text;
+ *  if the server emits a status we don't know about we fall back to
+ *  the raw key so it's visible (not silently swallowed). */
+const STATUS_PILL_LABELS: Record<string, string> = {
+  done: "DONE",
+  awaiting_customer: "AWAITING YOU",
+  wont_do: "WONT DO",
+  blocked: "BLOCKED",
+  feedback: "NEW FEEDBACK",
+  idle: "IDLE",
+  running: "RUNNING",
+};
+
+function statusPillHtml(status: string): string {
+  const label = STATUS_PILL_LABELS[status] || status.toUpperCase();
+  return `<span class="status-pill" data-status="${esc(status)}">${esc(label)}</span>`;
+}
+
+/** Format an ISO timestamp / Unix-secs-with-Z string into the
+ *  reference's "DD/MM/YYYY HH:MM" format. Defensive against the
+ *  Rust agent's slightly weird timestamp format (the existing
+ *  "1779817292Z" pattern is unix-seconds-then-Z; new ones might
+ *  be proper ISO — handle both). */
+function fmtThreadDate(s: string): string {
+  if (!s) return "";
+  let d: Date;
+  if (/^\d+Z$/.test(s)) {
+    d = new Date(parseInt(s, 10) * 1000);
+  } else {
+    d = new Date(s);
+  }
+  if (isNaN(d.getTime())) return s;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+let threadsPaneView: "list" | "detail" = "list";
+let threadsPaneAbort: AbortController | null = null;
+
+function threadsShowList(): void {
+  threadsPaneView = "list";
+  const el = (id: string) => document.getElementById(id);
+  el("threads-pane-head-list")!.hidden = false;
+  el("threads-pane-head-detail")!.hidden = true;
+  el("threads-list-view")!.hidden = false;
+  el("threads-detail-view")!.hidden = true;
+  void refreshThreadList().then(renderThreadsListView);
+}
+
+async function threadsShowDetail(threadId: string): Promise<void> {
+  threadsPaneView = "detail";
+  await switchThread(threadId);  // updates activeThreadId, populates cache
+  const meta = threadList.find((t) => t.id === threadId);
+  if (!meta) return;
+  const el = (id: string) => document.getElementById(id);
+  el("threads-pane-head-list")!.hidden = true;
+  el("threads-pane-head-detail")!.hidden = false;
+  el("threads-list-view")!.hidden = true;
+  el("threads-detail-view")!.hidden = false;
+  el("threads-detail-title")!.textContent = meta.title || "Thread";
+  // Meta strip: pill + sender (for feedback threads) + date.
+  const metaEl = el("threads-detail-meta")!;
+  const senderHtml = meta.sender ? `<span>📨 from ${esc(meta.sender)}</span>` : "";
+  metaEl.innerHTML = `${statusPillHtml(meta.status_hint || "idle")} <span>${esc(fmtThreadDate(meta.last_message_at))}</span> ${senderHtml}`;
+  // Paint messages into the in-pane chat container.
+  paintThreadsChat(threadId);
+  // Focus the reply input.
+  setTimeout(() => (el("threads-reply-input") as HTMLTextAreaElement | null)?.focus(), 30);
+}
+
+/** Archive the active thread as done. ✓ button in the detail header.
+ *  Closes the thread (PATCH archived=true + closure_reason="done"),
+ *  pops back to the list. */
+async function threadsArchiveActive(): Promise<void> {
+  if (!activeThreadId) return;
+  const id = activeThreadId;
+  try {
+    await apiThreadsPatch(id, { archived: true, closure_reason: "done" } as any);
+    // Optimistically update local state so the list reflects immediately.
+    const meta = threadList.find((t) => t.id === id);
+    if (meta) { meta.archived = true; meta.closure_reason = "done"; }
+    activeThreadId = null;
+    threadsShowList();
+  } catch (e) {
+    console.error("archive failed", e);
+  }
+}
+
+/** Archive a thread directly from the list × button. No confirm —
+ *  archive is reversible (data stays on disk), and adding a confirm
+ *  to every dismissal would be friction. If the user nukes the wrong
+ *  one, threads.json on disk still has the row with archived:true. */
+async function threadsArchiveFromList(id: string): Promise<void> {
+  try {
+    await apiThreadsPatch(id, { archived: true } as any);
+    const meta = threadList.find((t) => t.id === id);
+    if (meta) meta.archived = true;
+    // If we were viewing the killed thread, fall back to list view.
+    if (activeThreadId === id) {
+      activeThreadId = null;
+      threadsShowList();
+    } else {
+      renderThreadsListView();
+    }
+  } catch (e) {
+    console.error("archive-from-list failed", e);
+  }
+}
+
+function renderThreadsListView(): void {
+  const rows = document.getElementById("threads-rows");
+  if (!rows) return;
+  if (!threadList.length) {
+    rows.innerHTML = `
+      <div class="threads-empty">
+        <div style="margin-bottom:0.6rem">No threads yet.</div>
+        <button type="button" class="action-pill action-pill-primary"
+                onclick="window.__threadsNew()">Get started</button>
+      </div>`;
+    return;
+  }
+  const sorted = [...threadList]
+    .filter((t) => !t.archived)
+    .sort((a, b) => (b.last_message_at || "").localeCompare(a.last_message_at || ""));
+  rows.innerHTML = sorted.map((t) => {
+    const status = threadInFlight.has(t.id) ? "running" : (t.status_hint || "idle");
+    const date = fmtThreadDate(t.last_message_at);
+    const count = t.message_count || 0;
+    // Pull the first user message from the cache as a preview, if we
+    // already have messages loaded. Otherwise just the title.
+    const cached = threadMessageCache.get(t.id) || [];
+    const firstUser = cached.find((m) => m.role === "user");
+    const preview = firstUser ? firstUser.content : t.title;
+    return `<div class="thread-row-card" data-thread-id="${esc(t.id)}"
+                 onclick="window.__threadsShowDetail('${esc(t.id)}')">
+      <button type="button" class="thread-row-archive"
+              onclick="event.stopPropagation();window.__threadsArchiveFromList('${esc(t.id)}')"
+              title="Archive this thread" aria-label="Archive">&times;</button>
+      <div class="thread-row-line1">
+        ${statusPillHtml(status)}
+        <span class="thread-row-date">&middot; ${esc(date)}</span>
+        <span class="thread-row-count">${count} msg</span>
+      </div>
+      <div class="thread-row-preview">${esc(preview)}</div>
+    </div>`;
+  }).join("");
+}
+
+/** Extract pills from a stored assistant message.
+ *
+ *  The backend persists pills as a trailing HTML comment
+ *  `<!--TINA4_PILLS:["opt1","opt2"]-->` appended after the message
+ *  text. Returns { display: the user-visible text without the marker,
+ *  pills: parsed array or [] }. Keeps the storage scheme out of the
+ *  rendered DOM. */
+const PILLS_MARKER = /\n?<!--TINA4_PILLS:(\[.*?\])-->\s*$/;
+function extractPills(content: string): { display: string; pills: string[] } {
+  const m = content.match(PILLS_MARKER);
+  if (!m) return { display: content, pills: [] };
+  let pills: string[] = [];
+  try { pills = JSON.parse(m[1]); } catch {}
+  return { display: content.replace(PILLS_MARKER, ""), pills };
+}
+
+/** Render a row of action pills under an assistant bubble. Clicking
+ *  a pill sends its text as the next user turn immediately (no
+ *  intermediate edit step — pill IS the answer). Pills are only
+ *  attached to the LAST assistant message; older pills get stripped
+ *  during repaint so they can't be clicked retroactively. */
+function renderPills(host: HTMLElement, pills: string[]): void {
+  if (!pills.length) return;
+  const row = document.createElement("div");
+  row.className = "action-pills";
+  for (const p of pills) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "action-pill";
+    b.textContent = p;
+    b.addEventListener("click", () => {
+      // Mark all pills in this row as spent so they can't be clicked twice.
+      row.querySelectorAll(".action-pill").forEach((el) => el.setAttribute("disabled", ""));
+      row.classList.add("spent");
+      void threadsSendPillText(p);
+    });
+    row.appendChild(b);
+  }
+  host.appendChild(row);
+}
+
+/** Pill-click send. Same as threadsSend but takes the text from the
+ *  pill rather than the textarea. Doesn't touch the input — the user
+ *  may have something half-typed they want to keep. */
+async function threadsSendPillText(text: string): Promise<void> {
+  const input = document.getElementById("threads-reply-input") as HTMLTextAreaElement | null;
+  if (input) {
+    // Temporarily stash the pill text so threadsSend reads it. After
+    // sending, restore whatever the user had typed.
+    const stash = input.value;
+    input.value = text;
+    try { await threadsSend(); } finally {
+      // If the input was empty before, leave it empty; otherwise
+      // restore the user's half-typed message.
+      if (stash) input.value = stash;
+    }
+  }
+}
+
+function paintThreadsChat(threadId: string): void {
+  const chat = document.getElementById("threads-chat");
+  if (!chat) return;
+  const msgs = threadMessageCache.get(threadId) || [];
+  if (!msgs.length) {
+    chat.innerHTML = `<div class="ai-msg ai-bot" style="opacity:0.6">Start the conversation…</div>`;
+    return;
+  }
+  chat.innerHTML = "";
+  // Find the index of the last assistant message — only IT gets pills.
+  // Earlier pills are stale (the user already moved past that question).
+  let lastAssistantIdx = -1;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === "assistant") { lastAssistantIdx = i; break; }
+  }
+  msgs.forEach((m, i) => {
+    const div = document.createElement("div");
+    div.className = `ai-msg ai-${m.role === "user" ? "user" : "bot"}`;
+    if (m.role === "user") {
+      div.textContent = m.content;
+      chat.appendChild(div);
+      return;
+    }
+    // Assistant turn — extract pills, render only on the last one.
+    const meta = threadList.find((t) => t.id === threadId);
+    const { display, pills } = extractPills(m.content);
+    if (meta?.kind === "feedback") {
+      div.innerHTML = renderFeedbackTicket(display);
+    } else {
+      div.innerHTML = formatAIResponse(display);
+    }
+    chat.appendChild(div);
+    if (i === lastAssistantIdx) {
+      renderPills(chat, pills);
+    }
+  });
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderFeedbackTicket(jsonContent: string): string {
+  try {
+    const t = JSON.parse(jsonContent);
+    return `
+      <div style="display:flex;flex-direction:column;gap:0.3rem">
+        <div style="font-weight:600">${esc(t.title || "(no title)")}</div>
+        <div style="display:flex;gap:0.4rem;font-size:0.7rem;color:#9399b2">
+          <span>category: ${esc(t.category || "-")}</span>
+          <span>severity: ${esc(t.severity || "-")}</span>
+        </div>
+        <div style="margin-top:0.3rem">${esc(t.summary || "")}</div>
+      </div>`;
+  } catch {
+    return formatAIResponse(jsonContent);
+  }
+}
+
+async function threadsNew(): Promise<void> {
+  try {
+    const t = await apiThreadsCreate();
+    threadList.push(t);
+    threadMessageCache.set(t.id, []);
+    await threadsShowDetail(t.id);
+  } catch (e) {
+    console.error("threadsNew failed", e);
+  }
+}
+
+async function threadsRenameActive(): Promise<void> {
+  if (!activeThreadId) return;
+  const meta = threadList.find((t) => t.id === activeThreadId);
+  if (!meta) return;
+  const next = window.prompt("Rename thread:", meta.title);
+  if (next == null || next.trim() === "" || next === meta.title) return;
+  try {
+    const updated = await apiThreadsPatch(activeThreadId, { title: next.trim() });
+    meta.title = updated.title;
+    const titleEl = document.getElementById("threads-detail-title");
+    if (titleEl) titleEl.textContent = updated.title;
+    renderThreadsListView();
+  } catch (e) {
+    console.error("rename failed", e);
+  }
+}
+
+/** Modal-scoped send. Wires the reply textarea to supervisorChat
+ *  with the modal's chat container as the render target. Detects
+ *  the "New Topic:" prefix and spawns a fresh thread first.
+ *  (Task 29 is technically the prefix work but it's three lines so
+ *  I do it here while everything is hot.) */
+async function threadsSend(): Promise<void> {
+  const input = document.getElementById("threads-reply-input") as HTMLTextAreaElement | null;
+  if (!input) return;
+  let msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+
+  // Detect "New Topic:" prefix (case-insensitive). Strip it, create
+  // a new thread, switch into it, then send the rest as the first
+  // turn. Empty message after stripping = just opens the new thread.
+  const m = msg.match(/^new topic:\s*(.*)$/is);
+  if (m) {
+    const rest = m[1].trim();
+    try {
+      const t = await apiThreadsCreate(rest.slice(0, 80) || undefined);
+      threadList.push(t);
+      threadMessageCache.set(t.id, []);
+      await threadsShowDetail(t.id);
+      if (!rest) return;
+      msg = rest;
+    } catch (e) {
+      console.error("New Topic spawn failed", e);
+      return;
+    }
+  }
+
+  if (!activeThreadId) {
+    // Shouldn't happen — detail view requires an active thread — but
+    // guard anyway.
+    try {
+      const t = await apiThreadsCreate(msg.slice(0, 80));
+      threadList.push(t);
+      threadMessageCache.set(t.id, []);
+      activeThreadId = t.id;
+    } catch (e) {
+      console.error("auto-create failed", e);
+      return;
+    }
+  }
+
+  const threadId = activeThreadId!;
+
+  // Local cache append + immediate paint so the user's bubble shows
+  // up instantly while the supervisor is still thinking.
+  const cache = threadMessageCache.get(threadId) || [];
+  cache.push({
+    id: `local-${Date.now()}`,
+    role: "user",
+    content: msg,
+    timestamp: new Date().toISOString(),
+    thread_id: threadId,
+  });
+  threadMessageCache.set(threadId, cache);
+  paintThreadsChat(threadId);
+
+  threadInFlight.add(threadId);
+  renderThreadsListView();
+  const chat = document.getElementById("threads-chat");
+  threadsPaneAbort?.abort();
+  threadsPaneAbort = new AbortController();
+  try {
+    await supervisorChat(msg, threadId, threadsPaneAbort.signal, chat);
+  } catch (e: any) {
+    if (e?.name !== "AbortError") {
+      const errDiv = document.createElement("div");
+      errDiv.className = "ai-msg ai-bot";
+      errDiv.style.color = "var(--danger,#f38ba8)";
+      errDiv.textContent = `Connection failed: ${e?.message || e}`;
+      chat?.appendChild(errDiv);
+    }
+  } finally {
+    threadInFlight.delete(threadId);
+    threadsPaneAbort = null;
+    try { await loadThreadMessages(threadId, /*force=*/true); } catch {}
+    await refreshThreadList();
+    paintThreadsChat(threadId);
+    // Refresh meta strip too in case status_hint changed.
+    const meta = threadList.find((t) => t.id === threadId);
+    if (meta) {
+      const metaEl = document.getElementById("threads-detail-meta")!;
+      const senderHtml = meta.sender ? `<span>📨 from ${esc(meta.sender)}</span>` : "";
+      metaEl.innerHTML = `${statusPillHtml(meta.status_hint || "idle")} <span>${esc(fmtThreadDate(meta.last_message_at))}</span> ${senderHtml}`;
+    }
+  }
+}
+
+// Wire reply form + Enter-to-send. The form is always in the DOM
+// (just hidden when in list view) so event handlers attach cleanly
+// once on bootstrap. Using delegated handlers via the form's submit
+// event so it works regardless of when the form becomes visible.
+queueMicrotask(() => {
+  const form = document.getElementById("threads-reply-form") as HTMLFormElement | null;
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      void threadsSend();
+    });
+  }
+  const input = document.getElementById("threads-reply-input") as HTMLTextAreaElement | null;
+  if (input) {
+    input.addEventListener("keydown", (e) => {
+      // Enter sends; Shift+Enter inserts a newline.
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        void threadsSend();
+      }
+    });
+  }
+});
+
+// Window shims for inline onclick handlers in renderEditor's HTML.
+(window as any).__threadsShowList = () => threadsShowList();
+(window as any).__threadsShowDetail = (id: string) => { void threadsShowDetail(id); };
+(window as any).__threadsNew = () => { void threadsNew(); };
+(window as any).__threadsRenameActive = () => { void threadsRenameActive(); };
+(window as any).__threadsArchiveActive = () => { void threadsArchiveActive(); };
+(window as any).__threadsArchiveFromList = (id: string) => { void threadsArchiveFromList(id); };
 
 // Kick off the bootstrap once the DOM is rendered. The renderEditor()
 // builder writes the sidebar markup synchronously, so we can fetch on
@@ -2570,8 +2781,18 @@ queueMicrotask(() => { void bootstrapThreads(); });
  * surface `error` in red. The SPA's chatHistory only retains the final
  * assistant content so the visible timeline stays clean across reloads.
  */
-async function supervisorChat(msg: string, threadId: string | null, abortSignal: AbortSignal): Promise<void> {
-  const container = document.getElementById("editor-ai-messages");
+async function supervisorChat(
+  msg: string,
+  threadId: string | null,
+  abortSignal: AbortSignal,
+  targetContainer?: HTMLElement | null,
+): Promise<void> {
+  // When the new threads modal is open it passes #threads-chat as the
+  // render target. Old callers (the legacy right-panel path, now hidden
+  // but kept for backward compat) get #editor-ai-messages.
+  const container = targetContainer
+    ?? document.getElementById("threads-chat")
+    ?? document.getElementById("editor-ai-messages");
   if (!container) return;
 
   const bubble = document.createElement("div");
@@ -2649,6 +2870,17 @@ async function supervisorChat(msg: string, threadId: string | null, abortSignal:
         assistantContent = content;
         statusLine.innerHTML = `<span style="opacity:0.6">↳ ${esc(agent)}</span>`;
         contentDiv.innerHTML = formatAIResponse(content);
+        // Pills arrive on the SSE message payload as
+        // suggested_replies: ["opt1", "opt2"]. Render them under the
+        // bubble. Any prior pill row on this same bubble is replaced
+        // (live updates during streaming).
+        const pills = Array.isArray(payload.suggested_replies)
+          ? payload.suggested_replies.map((s: any) => String(s)).filter(Boolean)
+          : [];
+        bubble.querySelectorAll(".action-pills").forEach((el) => el.remove());
+        if (pills.length) {
+          renderPills(bubble, pills);
+        }
         if (Array.isArray(payload.files_changed)) {
           touchedFiles = payload.files_changed.map((s: any) => String(s));
         }
@@ -2658,11 +2890,14 @@ async function supervisorChat(msg: string, threadId: string | null, abortSignal:
         assistantContent = content;
         statusLine.innerHTML = `<span style="opacity:0.6">↳ planner</span> · plan saved to <code>${esc(file)}</code>`;
         contentDiv.innerHTML = formatAIResponse(content);
-        if (payload.approve) {
-          const hint = document.createElement("div");
-          hint.style.cssText = "margin-top:0.5rem;font-size:0.75rem;opacity:0.75";
-          hint.innerHTML = `Reply with <em>"go ahead"</em> / <em>"execute"</em> to build, or tell the supervisor what to change.`;
-          bubble.appendChild(hint);
+        // Three pills under every plan. Clicking "Make changes" sends
+        // that as the user turn; supervisor naturally responds with
+        // "what changes?" and the user types specifics. Pills are
+        // conversational shortcuts, not whole answers — the user
+        // can always type instead.
+        if (payload.approve !== false) {
+          bubble.querySelectorAll(".action-pills").forEach((el) => el.remove());
+          renderPills(bubble, ["Go ahead", "Make changes", "Cancel"]);
         }
       } else if (eventName === "error") {
         const errMsg = String(payload.message || "Supervisor error");
