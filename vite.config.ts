@@ -50,6 +50,14 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path: string) => path.replace("/__dev/api/supervise", "/supervise"),
       },
+      // Threads — list/create/rename/archive. Sub-paths
+      // (/__dev/api/threads/{id}, /__dev/api/threads/{id}/messages)
+      // are caught by the same prefix rewrite.
+      "/__dev/api/threads": {
+        target: agent,
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace("/__dev/api/threads", "/threads"),
+      },
       // All other dev admin API calls go to the framework backend
       "/__dev/api": {
         target: backend,

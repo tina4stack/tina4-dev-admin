@@ -269,25 +269,32 @@ export function renderEditor(el: HTMLElement): void {
 
             <!-- Activity: agent turns, tool results, chat bubbles. The
                  #editor-ai-messages id is preserved so addAIMessage() et
-                 al. keep appending here without code changes. The
-                 session-summary strip at the top surfaces cumulative
-                 session state (files / commits / warnings) when a
-                 supervisor session is live. -->
+                 al. keep appending here without code changes. Threads
+                 live in a sidebar on the left — each thread is a
+                 sustained conversation with its own server-side
+                 history. "Session" (worktree) ceremony is gone from
+                 this view; selecting a thread is the new primitive. -->
             <div class="session-tab-panel" data-panel="activity" id="panel-activity">
               <div class="session-summary-strip" id="session-summary-strip" hidden>
                 <span class="summary-chip" id="summary-chip-session"></span>
                 <span class="summary-spacer"></span>
                 <button type="button" class="summary-toggle" onclick="window.__editorTabSwitch('diff')">view diff</button>
               </div>
-              <div id="editor-ai-messages" class="editor-ai-messages">
-                <div class="ai-msg ai-bot">How can I help with this file?</div>
-                <!-- Session + plan entry points live in the mode picker + plan tab.
-                     We used to render "Start session" and "Plan" buttons here, but
-                     they duplicated controls that already exist elsewhere and made
-                     the chat feel mode-heavy on first load. Supervisor mode now
-                     starts a session implicitly on the first send, and if the
-                     project has no .git directory but git is on PATH, the backend
-                     auto-runs git init before creating the worktree. -->
+              <div class="thread-activity-row">
+                <aside class="thread-sidebar" id="thread-sidebar" aria-label="Conversation threads">
+                  <div class="thread-sidebar-head">
+                    <span class="thread-sidebar-title">Threads</span>
+                    <button type="button" class="thread-new-btn" id="thread-new-btn"
+                            onclick="window.__editorThreadNew()"
+                            title="Start a new conversation">+ New</button>
+                  </div>
+                  <div class="thread-list" id="thread-list">
+                    <div class="thread-list-empty">No threads yet</div>
+                  </div>
+                </aside>
+                <div id="editor-ai-messages" class="editor-ai-messages">
+                  <div class="ai-msg ai-bot">Pick a thread or start a new one to begin.</div>
+                </div>
               </div>
             </div>
 
@@ -1546,6 +1553,47 @@ function getEditorCSS(): string {
        container can sit flush. */
     .session-tab-panel[data-panel="activity"] .editor-ai-messages { padding: 0.5rem; }
 
+    /* Thread sidebar — left-rail list of conversations inside the
+       Activity panel. Each thread row is one line: status pip, title,
+       message count. Active thread row has a brighter background. The
+       row itself is clickable (switches thread); right-click opens
+       rename. The "+ New" button sits at the top in the header. */
+    .thread-activity-row { display: flex; flex: 1; min-height: 0; }
+    .thread-sidebar { width: 180px; flex-shrink: 0; display: flex; flex-direction: column;
+                      border-right: 1px solid var(--border, #313244); background: rgba(0,0,0,0.12); }
+    .thread-sidebar-head { display: flex; align-items: center; justify-content: space-between;
+                           padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border, #313244);
+                           font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+                           color: var(--muted, #9399b2); }
+    .thread-sidebar-title { font-weight: 600; }
+    .thread-new-btn { background: transparent; border: 1px solid var(--border, #313244);
+                      color: var(--text, #cdd6f4); font-size: 0.7rem; padding: 1px 6px;
+                      border-radius: 3px; cursor: pointer; }
+    .thread-new-btn:hover { background: rgba(137,180,250,0.15); border-color: var(--info, #89b4fa); }
+    .thread-list { flex: 1; overflow-y: auto; padding: 0.2rem 0; }
+    .thread-list-empty { padding: 0.5rem; font-size: 0.7rem; color: var(--muted, #9399b2);
+                         text-align: center; font-style: italic; }
+    .thread-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem;
+                  font-size: 0.72rem; cursor: pointer; border-left: 2px solid transparent;
+                  line-height: 1.3; }
+    .thread-row:hover { background: rgba(137,180,250,0.08); }
+    .thread-row.active { background: rgba(137,180,250,0.15); border-left-color: var(--info, #89b4fa); }
+    .thread-row .thread-pip { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+                              background: var(--muted, #9399b2); }
+    .thread-row[data-status="running"] .thread-pip { background: var(--info, #89b4fa);
+                                                      animation: thread-pulse 1.2s ease-in-out infinite; }
+    .thread-row[data-status="needs_input"] .thread-pip { background: var(--warning, #f9e2af); }
+    .thread-row[data-status="error"] .thread-pip { background: var(--danger, #f38ba8); }
+    .thread-row[data-status="done"] .thread-pip { background: var(--success, #a6e3a1); }
+    .thread-row[data-status="idle"] .thread-pip { background: var(--muted, #9399b2); opacity: 0.5; }
+    .thread-row .thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                                white-space: nowrap; color: var(--text, #cdd6f4); }
+    .thread-row .thread-count { font-size: 0.65rem; color: var(--muted, #9399b2); flex-shrink: 0; }
+    .thread-row input.thread-title-edit { background: rgba(0,0,0,0.3); border: 1px solid var(--info, #89b4fa);
+                                          color: var(--text, #cdd6f4); font-size: 0.72rem;
+                                          padding: 1px 4px; border-radius: 2px; width: 100%; min-width: 0; }
+    @keyframes thread-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
     /* Decision chips — inline quick-action buttons the supervisor
        can emit alongside a question ("commit now or keep going?").
        One click beats typing the answer. Chips share a row, wrap
@@ -2248,6 +2296,396 @@ async function getMcpTools(): Promise<McpTool[]> {
  *  without letting a stuck model run all day. */
 const MAX_TOOL_ROUNDS = 20;
 
+// ── Threads ────────────────────────────────────────────────────────
+//
+// A "thread" is a sustained conversation with the supervisor. Each
+// thread has its own id, title, and server-side message history
+// (history.json filtered by thread_id). The sidebar in the Activity
+// panel lists them with a status pip — running, needs-input, error,
+// done, idle — so you can scan parallel work at a glance.
+//
+// State model:
+//   threadList[]            — all threads (metadata + status_hint)
+//   activeThreadId          — which thread the chat UI is showing
+//   threadMessageCache      — per-thread message arrays, populated
+//                             lazily on first switch and after each
+//                             new turn. Avoids re-fetching on every
+//                             tab toggle.
+//   threadInFlight[id]      — true while an HTTP request is in flight
+//                             for this thread. Drives the "running"
+//                             pip even though the server doesn't know.
+
+interface ThreadMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  last_message_at: string;
+  archived: boolean;
+  message_count?: number;
+  status_hint?: "idle" | "needs_input" | "done" | "error";
+}
+
+interface ThreadMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+  thread_id?: string;
+  agent?: string;
+}
+
+let threadList: ThreadMeta[] = [];
+let activeThreadId: string | null = null;
+const threadMessageCache = new Map<string, ThreadMessage[]>();
+const threadInFlight = new Set<string>();
+
+const LS_ACTIVE_THREAD = "tina4.editor.activeThread.v1";
+
+async function apiThreadsList(): Promise<ThreadMeta[]> {
+  const r = await fetch("/__dev/api/threads");
+  if (!r.ok) throw new Error(`threads list ${r.status}`);
+  return r.json();
+}
+
+async function apiThreadsCreate(title?: string): Promise<ThreadMeta> {
+  const r = await fetch("/__dev/api/threads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(title ? { title } : {}),
+  });
+  if (!r.ok) throw new Error(`threads create ${r.status}`);
+  return r.json();
+}
+
+async function apiThreadsPatch(id: string, patch: Partial<ThreadMeta>): Promise<ThreadMeta> {
+  const r = await fetch(`/__dev/api/threads/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(`threads patch ${r.status}`);
+  return r.json();
+}
+
+async function apiThreadMessages(id: string): Promise<ThreadMessage[]> {
+  const r = await fetch(`/__dev/api/threads/${encodeURIComponent(id)}/messages`);
+  if (!r.ok) throw new Error(`thread messages ${r.status}`);
+  return r.json();
+}
+
+/** Re-render the sidebar from threadList. Cheap — only ever updates
+ *  innerHTML of #thread-list, which is small. Active row is
+ *  highlighted; in-flight threads show "running" status overriding
+ *  whatever the server-computed hint was. */
+function renderThreadSidebar(): void {
+  const list = document.getElementById("thread-list");
+  if (!list) return;
+  if (!threadList.length) {
+    list.innerHTML = `<div class="thread-list-empty">No threads yet — click + New</div>`;
+    return;
+  }
+  // Most-recent first by last_message_at; archived threads at the bottom.
+  const sorted = [...threadList]
+    .filter((t) => !t.archived)
+    .sort((a, b) => (b.last_message_at || "").localeCompare(a.last_message_at || ""));
+  list.innerHTML = sorted.map((t) => {
+    const status = threadInFlight.has(t.id) ? "running" : (t.status_hint || "idle");
+    const activeAttr = t.id === activeThreadId ? " active" : "";
+    const count = t.message_count || 0;
+    const countLabel = count > 0 ? `<span class="thread-count">${count}</span>` : "";
+    return `<div class="thread-row${activeAttr}" data-status="${status}" data-thread-id="${esc(t.id)}"
+                 onclick="window.__editorThreadSwitch('${esc(t.id)}')"
+                 ondblclick="window.__editorThreadRename('${esc(t.id)}')"
+                 title="Double-click to rename">
+      <span class="thread-pip"></span>
+      <span class="thread-title">${esc(t.title)}</span>
+      ${countLabel}
+    </div>`;
+  }).join("");
+}
+
+/** Pull fresh thread list from server; preserve in-flight markers so
+ *  the badge for a thread you're actively chatting in doesn't flap
+ *  back to idle while the response is mid-flight. */
+async function refreshThreadList(): Promise<void> {
+  try {
+    threadList = await apiThreadsList();
+    renderThreadSidebar();
+  } catch (e) {
+    console.error("refreshThreadList failed", e);
+  }
+}
+
+/** Repaint the messages container from the cache for one thread.
+ *  Doesn't fetch — caller is responsible for ensuring the cache is
+ *  populated (loadThreadMessages handles that). */
+function paintThreadMessages(threadId: string): void {
+  const container = document.getElementById("editor-ai-messages");
+  if (!container) return;
+  const msgs = threadMessageCache.get(threadId) || [];
+  if (!msgs.length) {
+    container.innerHTML = `<div class="ai-msg ai-bot" style="opacity:0.6">Start the conversation…</div>`;
+    return;
+  }
+  container.innerHTML = "";
+  for (const m of msgs) {
+    const div = document.createElement("div");
+    div.className = `ai-msg ai-${m.role === "user" ? "user" : "bot"}`;
+    if (m.role === "user") {
+      div.textContent = m.content;
+    } else {
+      div.innerHTML = formatAIResponse(m.content);
+    }
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+async function loadThreadMessages(threadId: string, force = false): Promise<void> {
+  if (!force && threadMessageCache.has(threadId)) return;
+  try {
+    const msgs = await apiThreadMessages(threadId);
+    threadMessageCache.set(threadId, msgs);
+  } catch (e) {
+    console.error(`loadThreadMessages(${threadId}) failed`, e);
+    threadMessageCache.set(threadId, []);
+  }
+}
+
+/** Switch the active thread. Persists choice to localStorage so reload
+ *  lands on the same thread. Triggers a fetch of messages (if not
+ *  already cached) and repaints the chat container. */
+async function switchThread(threadId: string): Promise<void> {
+  if (threadId === activeThreadId) return;
+  activeThreadId = threadId;
+  try { localStorage.setItem(LS_ACTIVE_THREAD, threadId); } catch {}
+  renderThreadSidebar();
+  await loadThreadMessages(threadId);
+  paintThreadMessages(threadId);
+}
+
+/** Create a new thread, switch to it, clear the input. Title defaults
+ *  to "New thread" until the user's first message comes in — at which
+ *  point the Rust upsert auto-titles it from the message content. */
+async function newThread(): Promise<void> {
+  try {
+    const t = await apiThreadsCreate();
+    threadList.push(t);
+    threadMessageCache.set(t.id, []);
+    await switchThread(t.id);
+    const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement | null;
+    input?.focus();
+  } catch (e) {
+    addAIMessage(`<span style="color:var(--danger)">Couldn't create thread: ${esc(String((e as Error)?.message || e))}</span>`, "bot");
+  }
+}
+
+/** Inline-edit a thread title. Replaces the title span with an input,
+ *  blur/Enter commits, Escape cancels. */
+async function renameThreadInline(threadId: string): Promise<void> {
+  const row = document.querySelector(`.thread-row[data-thread-id="${CSS.escape(threadId)}"]`);
+  const titleSpan = row?.querySelector(".thread-title") as HTMLElement | null;
+  if (!row || !titleSpan) return;
+  const original = titleSpan.textContent || "";
+  const input = document.createElement("input");
+  input.className = "thread-title-edit";
+  input.value = original;
+  titleSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const restore = (text: string) => {
+    const span = document.createElement("span");
+    span.className = "thread-title";
+    span.textContent = text;
+    input.replaceWith(span);
+  };
+  const commit = async () => {
+    const next = input.value.trim();
+    if (!next || next === original) { restore(original); return; }
+    try {
+      const updated = await apiThreadsPatch(threadId, { title: next });
+      const t = threadList.find((x) => x.id === threadId);
+      if (t) t.title = updated.title;
+      restore(updated.title);
+    } catch (e) {
+      console.error("rename failed", e);
+      restore(original);
+    }
+  };
+  input.addEventListener("blur", () => { void commit(); });
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); input.blur(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); restore(original); }
+  });
+}
+
+/** First-load bootstrap: fetch threads, pick the most recent (or the
+ *  localStorage-remembered active id), populate the cache, paint. If
+ *  there are no threads at all, leave the placeholder — the user
+ *  clicks + New on the first interaction. */
+async function bootstrapThreads(): Promise<void> {
+  await refreshThreadList();
+  if (!threadList.length) {
+    activeThreadId = null;
+    paintThreadMessages("__nope__");
+    return;
+  }
+  let pickId: string | null = null;
+  try { pickId = localStorage.getItem(LS_ACTIVE_THREAD); } catch {}
+  if (!pickId || !threadList.some((t) => t.id === pickId)) {
+    pickId = [...threadList].sort((a, b) =>
+      (b.last_message_at || "").localeCompare(a.last_message_at || "")
+    )[0].id;
+  }
+  await switchThread(pickId);
+}
+
+// Expose for the inline HTML onclick handlers in the sidebar.
+(window as any).__editorThreadNew = () => { void newThread(); };
+(window as any).__editorThreadSwitch = (id: string) => { void switchThread(id); };
+(window as any).__editorThreadRename = (id: string) => { void renameThreadInline(id); };
+
+// Kick off the bootstrap once the DOM is rendered. The renderEditor()
+// builder writes the sidebar markup synchronously, so we can fetch on
+// the next tick safely.
+queueMicrotask(() => { void bootstrapThreads(); });
+
+/**
+ * Supervisor-mode chat: routes the turn through POST /__dev/api/chat,
+ * which the Python dev_admin proxies to the Rust agent's /chat endpoint.
+ *
+ * The Rust supervisor runs the full multi-agent loop (supervisor decides
+ * → planner / coder / debug / respond) with the Tina4-aware system
+ * prompts AND uses Anthropic Claude when ANTHROPIC_API_KEY is set. The
+ * response is an SSE stream of typed events:
+ *
+ *   event: status   data: {"text":"...","agent":"..."}        progress
+ *   event: message  data: {"content":"...","agent":"..."}     final reply
+ *   event: plan     data: {"content":"...","file":"...","approve":true}
+ *   event: error    data: {"message":"..."}
+ *   event: done
+ *
+ * We render `status` into a small grey progress line at the top of the
+ * bubble, swap it for the `message`/`plan` content once it arrives, and
+ * surface `error` in red. The SPA's chatHistory only retains the final
+ * assistant content so the visible timeline stays clean across reloads.
+ */
+async function supervisorChat(msg: string, threadId: string | null, abortSignal: AbortSignal): Promise<void> {
+  const container = document.getElementById("editor-ai-messages");
+  if (!container) return;
+
+  const bubble = document.createElement("div");
+  bubble.className = "ai-msg ai-bot";
+  const statusLine = document.createElement("div");
+  statusLine.style.cssText = "font-size:0.72rem;opacity:0.7;margin-bottom:0.3rem;font-family:var(--font-mono,monospace)";
+  statusLine.innerHTML = '<span style="opacity:0.6">→ supervisor: thinking…</span>';
+  const contentDiv = document.createElement("div");
+  bubble.appendChild(statusLine);
+  bubble.appendChild(contentDiv);
+  container.appendChild(bubble);
+  container.scrollTop = container.scrollHeight;
+
+  const response = await fetch("/__dev/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: msg, thread_id: threadId }),
+    signal: abortSignal,
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try { detail = (await response.text()).slice(0, 400); } catch {}
+    statusLine.remove();
+    contentDiv.innerHTML =
+      `<span style="color:var(--danger,#f38ba8)">Supervisor unavailable (HTTP ${response.status}).</span>` +
+      (detail ? `<pre style="font-size:0.7rem;opacity:0.7;margin-top:0.3rem;white-space:pre-wrap">${esc(detail)}</pre>` : "") +
+      `<div style="font-size:0.75rem;opacity:0.7;margin-top:0.3rem">Run <code>tina4 serve</code> (auto-spawns the agent) or set <code>TINA4_SUPERVISOR_URL</code>.</div>`;
+    return;
+  }
+  if (!response.body) {
+    statusLine.remove();
+    contentDiv.innerHTML = `<span style="color:var(--danger,#f38ba8)">Supervisor returned no body.</span>`;
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let assistantContent = "";
+  let touchedFiles: string[] = [];
+
+  // Drain the stream in newline-pair-delimited SSE frames. Each frame
+  // is `event: <name>\ndata: <json>\n\n`. We accumulate text into a
+  // buffer and parse complete frames as they arrive — partial frames
+  // stay in the buffer until the next chunk completes them.
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let frameEnd: number;
+    while ((frameEnd = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, frameEnd);
+      buffer = buffer.slice(frameEnd + 2);
+      let eventName = "message";
+      let dataStr = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+      }
+      if (!dataStr) continue;
+      let payload: any;
+      try { payload = JSON.parse(dataStr); } catch { payload = { text: dataStr, content: dataStr }; }
+
+      if (eventName === "status") {
+        const agent = String(payload.agent || "supervisor");
+        const text = String(payload.text || "");
+        statusLine.innerHTML = `<span style="color:var(--info,#89b4fa)">[${esc(agent)}]</span> ${esc(text)}`;
+        if (payload.backup) {
+          statusLine.innerHTML += ` <span style="opacity:0.5">(backup: ${esc(String(payload.backup))})</span>`;
+        }
+      } else if (eventName === "message") {
+        const agent = String(payload.agent || "supervisor");
+        const content = String(payload.content || "");
+        assistantContent = content;
+        statusLine.innerHTML = `<span style="opacity:0.6">↳ ${esc(agent)}</span>`;
+        contentDiv.innerHTML = formatAIResponse(content);
+        if (Array.isArray(payload.files_changed)) {
+          touchedFiles = payload.files_changed.map((s: any) => String(s));
+        }
+      } else if (eventName === "plan") {
+        const content = String(payload.content || "");
+        const file = String(payload.file || "");
+        assistantContent = content;
+        statusLine.innerHTML = `<span style="opacity:0.6">↳ planner</span> · plan saved to <code>${esc(file)}</code>`;
+        contentDiv.innerHTML = formatAIResponse(content);
+        if (payload.approve) {
+          const hint = document.createElement("div");
+          hint.style.cssText = "margin-top:0.5rem;font-size:0.75rem;opacity:0.75";
+          hint.innerHTML = `Reply with <em>"go ahead"</em> / <em>"execute"</em> to build, or tell the supervisor what to change.`;
+          bubble.appendChild(hint);
+        }
+      } else if (eventName === "error") {
+        const errMsg = String(payload.message || "Supervisor error");
+        statusLine.innerHTML = `<span style="color:var(--danger,#f38ba8)">✗ error</span>`;
+        contentDiv.innerHTML = `<span style="color:var(--danger,#f38ba8)">${esc(errMsg)}</span>`;
+      }
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  // Refresh the file tree for any files the coder wrote. Done after
+  // the stream completes so we batch the redraws rather than one per
+  // file as they arrive.
+  for (const f of touchedFiles) {
+    try { await refreshAfterToolMutation(f); } catch {}
+  }
+
+  if (assistantContent) {
+    chatHistory.push({ role: "assistant", content: assistantContent });
+    saveChatHistory();
+  }
+}
+
 async function aiSend(): Promise<void> {
   const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement;
   const msg = input?.value?.trim();
@@ -2313,36 +2751,71 @@ async function aiSend(): Promise<void> {
 
   addAIMessage(esc(msg), "user");
 
-  // Supervisor mode stages edits in a throwaway git worktree so the user
-  // can review a proposal before committing. Previously the user had to
-  // click "▶ Start session" first, which made the chat feel front-loaded
-  // with ceremony. Instead: if we're in supervisor mode and no session
-  // exists yet, spin one up right here on the first Send. The title is
-  // the first line of the user's message (same text they would have
-  // typed into the old prompt). If session creation fails (backend down,
-  // git not installed, worktree path not writable) we surface the error
-  // as a bot message and bail — we do NOT silently downgrade to plain
-  // chat mode because the user is explicitly in supervisor mode.
-  if (getSessionMode() === "supervisor" && !currentSession) {
-    const title = msg.split("\n")[0].slice(0, 120).trim() || "supervisor session";
-    try {
-      const meta = await startSession(title, "");
-      if (!meta) {
+  // ── Supervisor mode dispatch ─────────────────────────────────────
+  // Threads are now the primitive. No session/worktree ceremony — if
+  // there's no active thread, create one transparently on the first
+  // send. Subsequent turns reuse the active thread. The Rust supervisor
+  // maintains server-side history keyed by thread_id; the SPA keeps a
+  // local cache (threadMessageCache) for snappy switching.
+  //
+  // Worktree-per-thread isolation is a round-2 task — for now writes
+  // land in the main working tree, same as before threads existed.
+  if (getSessionMode() === "supervisor") {
+    // Auto-create a thread on first send so the user doesn't have to
+    // click "+ New" before their first message.
+    if (!activeThreadId) {
+      try {
+        const t = await apiThreadsCreate(msg.slice(0, 80));
+        threadList.push(t);
+        threadMessageCache.set(t.id, []);
+        activeThreadId = t.id;
+        try { localStorage.setItem(LS_ACTIVE_THREAD, t.id); } catch {}
+        renderThreadSidebar();
+      } catch (e) {
         addAIMessage(
-          "Couldn't start a supervisor session. The Rust agent isn't reachable. " +
-          "Run <code>tina4 serve</code> (auto-spawns the agent) or <code>tina4 agent</code> in another terminal, " +
-          "then try again. Or switch to Q&amp;A mode for a read-only chat.",
+          `<span style="color:var(--danger,#f38ba8)">Couldn't create thread: ${esc(String((e as Error)?.message || e))}. Is the agent running?</span>`,
           "bot",
         );
         return;
       }
-    } catch (err) {
-      addAIMessage(
-        `Couldn't start a supervisor session: ${esc(String((err as Error)?.message || err))}. Switch to Q&amp;A mode for a read-only chat.`,
-        "bot",
-      );
-      return;
     }
+    const turnThreadId = activeThreadId!;
+
+    // Local message cache: append the user turn so reload restores it,
+    // and so switching away mid-stream and back still shows the message.
+    const cache = threadMessageCache.get(turnThreadId) || [];
+    cache.push({
+      id: `local-${Date.now()}`, role: "user", content: msg,
+      timestamp: new Date().toISOString(), thread_id: turnThreadId,
+    });
+    threadMessageCache.set(turnThreadId, cache);
+
+    // Mark in-flight so the sidebar pip pulses while the supervisor runs.
+    threadInFlight.add(turnThreadId);
+    renderThreadSidebar();
+
+    try {
+      await supervisorChat(msg, turnThreadId, chatAbort.signal);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        addAIMessage(
+          `<span style="color:var(--danger,#f38ba8)">Supervisor connection failed: ${esc(String(e?.message || e))}</span>`,
+          "bot",
+        );
+      }
+    } finally {
+      threadInFlight.delete(turnThreadId);
+      chatAbort = null;
+      // Pull fresh thread metadata so message_count + status_hint
+      // reflect the new turn. Also reload the messages cache so the
+      // local user-turn placeholder gets replaced by the server's
+      // canonical (timestamped, id'd) version on next paint.
+      try {
+        await loadThreadMessages(turnThreadId, /*force=*/true);
+      } catch {}
+      await refreshThreadList();
+    }
+    return;
   }
 
   // Every turn rebuilds the system message from the CURRENT active file
