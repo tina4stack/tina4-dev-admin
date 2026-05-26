@@ -2329,7 +2329,9 @@ async function aiSend(): Promise<void> {
       const meta = await startSession(title, "");
       if (!meta) {
         addAIMessage(
-          "Couldn't start a supervisor session — check the Rust agent is running (framework_port + 2000) and try again, or switch to Q&amp;A mode for a read-only chat.",
+          "Couldn't start a supervisor session. The Rust agent isn't reachable. " +
+          "Run <code>tina4 serve</code> (auto-spawns the agent) or <code>tina4 agent</code> in another terminal, " +
+          "then try again. Or switch to Q&amp;A mode for a read-only chat.",
           "bot",
         );
         return;
