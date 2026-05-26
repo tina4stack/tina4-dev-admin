@@ -1929,33 +1929,6 @@ async function actOnThought(id: string): Promise<void> {
   await dismissThoughtChip(id);
 }
 
-/** Nuke every currently-visible thought. Used when the engine floods
- *  the panel with restated or false-positive observations — one click
- *  beats dismissing them one at a time. Each current hash is added to
- *  the persistent dismissed set so restarts don't resurrect them; the
- *  server is asked to drop each id as a best-effort. */
-async function clearAllThoughts(): Promise<void> {
-  const chips = Array.from(document.querySelectorAll<HTMLElement>(".editor-thought-chip"));
-  if (!chips.length) return;
-  const dismissed = loadDismissedHashes();
-  const ids: string[] = [];
-  for (const chip of chips) {
-    const h = chip.dataset.hash;
-    const id = chip.dataset.id;
-    if (h) dismissed.add(h);
-    if (id) ids.push(id);
-  }
-  saveDismissedHashes(dismissed);
-  // Fire-and-forget server-side dismiss for each id. We don't await
-  // the lot — the panel already hid them locally and the hash is in
-  // the dismiss set, so even if the server requests fail the user's
-  // experience is correct.
-  for (const id of ids) {
-    dismissThought(id).catch(() => { /* best-effort */ });
-  }
-  await loadThoughtsBanner();
-}
-
 async function dismissThoughtChip(id: string): Promise<void> {
   // Remember by content hash so regenerated thoughts with the same
   // essence but a fresh ID stay dismissed across polls / reloads.
@@ -1968,49 +1941,6 @@ async function dismissThoughtChip(id: string): Promise<void> {
   }
   try { await dismissThought(id); } catch { /* best-effort server-side dismiss */ }
   await loadThoughtsBanner();
-}
-
-/** Modal picker to switch/create plans. Small, no-dependencies. */
-async function openPlanSwitcher(): Promise<void> {
-  document.getElementById("editor-plan-modal")?.remove();
-  const r = await callMcpTool("plan_list", {});
-  const plans: any[] = (r.ok && (r as any).result) || [];
-  const wrap = document.createElement("div");
-  wrap.id = "editor-plan-modal";
-  wrap.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999";
-  wrap.innerHTML = `
-    <div style="background:var(--bg-elev,#1e1e2e);border:1px solid var(--border,#313244);border-radius:8px;padding:1.25rem;width:min(480px,92vw);max-height:80vh;overflow:auto;color:var(--text,#cdd6f4)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-        <h3 style="margin:0;font-size:1rem">📋 Plans</h3>
-        <button class="btn btn-sm" onclick="document.getElementById('editor-plan-modal').remove()" style="font-size:0.75rem">✕</button>
-      </div>
-      <p style="font-size:0.7rem;opacity:0.6;margin:0 0 0.75rem">Stored as markdown in <code>plan/</code>. The AI sees the active plan every turn.</p>
-      <div style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:1rem">
-        ${plans.length === 0 ? '<div style="font-size:0.8rem;opacity:0.6;padding:0.5rem">No plans yet. Create one below.</div>' : ""}
-        ${plans.map((p) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.6rem;border:1px solid var(--border,#313244);border-radius:4px;${p.is_current ? "background:rgba(137,180,250,0.12);border-color:var(--info,#89b4fa)" : ""}">
-            <div style="flex:1;min-width:0">
-              <div style="font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.is_current ? "▸ " : ""}${esc(p.title || p.name)}</div>
-              <div style="font-size:0.65rem;opacity:0.6">${p.steps_done}/${p.steps_total} steps · ${esc(p.name)}</div>
-            </div>
-            <div style="display:flex;gap:0.25rem">
-              ${p.is_current ? "" : `<button class="btn btn-sm" onclick="window.__editorPlanSwitch('${esc(p.name)}')" style="font-size:0.65rem">Activate</button>`}
-              <button class="btn btn-sm" onclick="window.__editorPlanOpen('${esc(p.name)}')" style="font-size:0.65rem" title="Open in editor">Open</button>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-      <hr style="border:none;border-top:1px solid var(--border,#313244);margin:0.75rem 0">
-      <div style="display:flex;flex-direction:column;gap:0.4rem">
-        <input id="plan-new-title" class="input" placeholder="New plan title (e.g. 'Implement contact form')" style="font-size:0.8rem">
-        <textarea id="plan-new-goal" class="input" placeholder="Goal (optional, one line)" rows="2" style="font-size:0.8rem;resize:vertical"></textarea>
-        <div style="display:flex;gap:0.25rem;justify-content:flex-end">
-          <button class="btn btn-sm btn-primary" onclick="window.__editorPlanCreate()" style="font-size:0.75rem">Create & activate</button>
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(wrap);
-  wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.remove(); });
 }
 
 async function switchPlan(name: string): Promise<void> {
@@ -3301,30 +3231,6 @@ async function aiSend(): Promise<void> {
   }
 }
 
-function aiExplain(): void {
-  const sel = getSelectedText();
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement;
-  if (sel && input) {
-    input.value = `Explain this code:\n\`\`\`\n${sel}\n\`\`\``;
-    aiSend();
-  } else if (input) {
-    input.value = "Explain what this file does";
-    aiSend();
-  }
-}
-
-function aiRefactor(): void {
-  const sel = getSelectedText();
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement;
-  if (sel && input) {
-    input.value = `Suggest improvements for this code:\n\`\`\`\n${sel}\n\`\`\``;
-    aiSend();
-  } else if (input) {
-    input.value = "Suggest improvements for this file";
-    aiSend();
-  }
-}
-
 // ── Session panel wiring (tabs / mode / health / chips / outcomes) ─
 //
 // Slice 1: the right-hand panel was restructured around a supervisor
@@ -3341,11 +3247,6 @@ type SessionTab  = "activity" | "plan" | "thoughts" | "diff" | "checks";
 function getSessionMode(): SessionMode {
   const v = localStorage.getItem(LS_SESSION_MODE);
   return v === "qa" ? "qa" : "supervisor";
-}
-
-function setSessionMode(mode: SessionMode): void {
-  localStorage.setItem(LS_SESSION_MODE, mode);
-  applySessionModeToDOM(mode);
 }
 
 function applySessionModeToDOM(mode: SessionMode): void {
@@ -3399,14 +3300,6 @@ function setTabBadge(tab: "plan" | "thoughts", count: number | null, alert = fal
   }
   badge.textContent = String(count);
   btn?.classList.toggle("has-alert", alert);
-}
-
-/** Flip completion on/off, persist, refresh the indicator. Called from
- *  the ⚡ button in the status strip. */
-function toggleCompletion(): void {
-  completionEnabled = !completionEnabled;
-  try { localStorage.setItem("tina4.editor.completion.enabled", completionEnabled ? "true" : "false"); } catch { /* private mode */ }
-  refreshCompletionIndicator();
 }
 
 /** Visual state on the ⚡ button: disabled / off-plan / on-plan.
@@ -3775,98 +3668,6 @@ async function reviveSessionFromStorage(): Promise<void> {
     }
   } catch { /* offline / server down — leave storage as-is */ }
   localStorage.removeItem(LS_CURRENT_SESSION);
-}
-
-/** Ask the supervisor to iterate. Slice 2 doesn't have the revise
- *  endpoint yet (that's a richer chat loop), so we fall back to the
- *  Activity chips pattern — prompt the user for what to revise and
- *  send it through the existing /chat stream once the supervisor
- *  stream integration lands. For now, surface an honest placeholder. */
-function sessionRevise(): void {
-  if (!currentSession) return;
-  const input = document.getElementById("editor-ai-input") as HTMLTextAreaElement | null;
-  if (input) {
-    input.placeholder = `Revise session ${currentSession.id.slice(0, 8)} — what should change?`;
-    input.focus();
-  }
-  addActivityChips(
-    `Revising session ${currentSession.id.slice(0, 8)}. Tell me what to change, or pick:`,
-    [
-      { label: "Make it smaller", variant: "default", replyAs: "Narrow the scope — keep only the essential change" },
-      { label: "Add tests",       variant: "default", replyAs: "Add tests for the code you wrote" },
-      { label: "Different approach", variant: "subdued", replyAs: "Try a different approach — tell me what you'd do differently" },
-    ],
-  );
-}
-
-/** Apply the session's proposal to the user's working tree. All
- *  changed files get committed in one squash-commit. Partial apply
- *  (per-file accept) lands in a later slice when the diff viewer
- *  gains checkboxes. */
-async function sessionApply(): Promise<void> {
-  if (!currentSession) return;
-  const id = currentSession.id;
-  const changed = currentDiff?.files.length ?? 0;
-  if (!changed) {
-    addAIMessage('<span style="opacity:0.6">Nothing to apply — session has no changes.</span>', "bot");
-    return;
-  }
-  addAIMessage(`<span style="opacity:0.75">Applying session <code>${esc(id.slice(0, 8))}</code>…</span>`, "bot");
-  try {
-    const result = await commitSession(id, []);
-    const applied = result.applied.length;
-    const warningLine = result.warnings.length
-      ? `<div style="opacity:0.7;margin-top:0.2rem">${esc(result.warnings.join(" · "))}</div>`
-      : "";
-    addAIMessage(
-      `<span style="color:var(--success,#a6e3a1)">✓ Applied ${applied} file${applied === 1 ? "" : "s"}</span> · <code style="opacity:0.7">${esc(result.sha.slice(0, 7))}</code>${warningLine}`,
-      "bot",
-    );
-    // Refresh file tree + open buffers so the new state is visible.
-    await refreshAllOpenDirs();
-    for (const path of result.applied) await syncOpenBuffer(path);
-    // Session stays open for further revisions. Refresh the diff so
-    // the Apply button disables until new work lands.
-    await refreshSessionDiff();
-  } catch (e: any) {
-    addAIMessage(`<span style="color:var(--danger,#f38ba8)">✗ Apply failed: ${esc(String(e?.message || e))}</span>`, "bot");
-  }
-}
-
-/** Drop the session worktree and branch. Asks for confirmation only
- *  when there's real work staged — cancelling a brand-new empty
- *  session shouldn't require a modal. */
-async function sessionCancel(): Promise<void> {
-  if (!currentSession) return;
-  const id = currentSession.id;
-  const changed = currentDiff?.files.length ?? 0;
-  if (changed > 0) {
-    const ok = window.confirm(`Cancel session and discard ${changed} changed file${changed === 1 ? "" : "s"}? This is not undoable.`);
-    if (!ok) return;
-  }
-  try {
-    await cancelSession(id);
-    addAIMessage(`<span style="opacity:0.65">Session ${esc(id.slice(0, 8))} cancelled.</span>`, "bot");
-    setCurrentSession(null);
-    currentDiff = null;
-  } catch (e: any) {
-    addAIMessage(`<span style="color:var(--danger,#f38ba8)">Cancel failed: ${esc(String(e?.message || e))}</span>`, "bot");
-  }
-}
-
-/** Bootstrap button in the empty Activity tab — lets the user open
- *  a session without waiting for the Send-triggers-session wiring
- *  in a later slice. Prompts for a one-line title. */
-async function startSessionFromActivity(): Promise<void> {
-  const title = window.prompt("What are you working on? (used as the commit subject when you Apply)", "") || "";
-  if (title.trim().length === 0) return;
-  await startSession(title.trim(), "");
-  // Hide the bootstrap card once a session exists — the status strip
-  // now carries the session identity.
-  const card = document.getElementById("activity-session-bootstrap");
-  if (card) card.style.display = "none";
-  // Summary strip reveals itself as state accumulates.
-  updateSessionSummaryStrip();
 }
 
 /** Populate the compact "3 files · 5 commits" strip at the top of
@@ -4834,10 +4635,6 @@ function showTabCtxMenu(event: MouseEvent, path: string): void {
   }, 0);
 }
 
-function closeTabCtxMenu(): void {
-  document.querySelectorAll(".tab-ctx-menu").forEach((n) => n.remove());
-}
-
 function closeOtherFiles(keepPath: string): void {
   const toClose = openFiles.filter((f) => f.path !== keepPath).map((f) => f.path);
   toClose.forEach((p) => closeFile(p));
@@ -4879,27 +4676,17 @@ function closeAllFiles(): void {
 (window as any).__editorCloseRight = closeFilesToRight;
 (window as any).__editorCloseOthers = closeOtherFiles;
 (window as any).__editorTabCtxMenu = showTabCtxMenu;
-(window as any).__editorTabCtxClose = closeTabCtxMenu;
 (window as any).__editorPopOut = popOut;
 (window as any).__editorSave = saveCurrentFile;
 (window as any).__editorToggleAI = toggleAI;
 (window as any).__editorAISend = aiSend;
-(window as any).__editorAIExplain = aiExplain;
-(window as any).__editorAIRefactor = aiRefactor;
 (window as any).__editorAIImage = aiImagePrompt;
 // Session panel wiring — tab switch, mode toggle, stub action buttons.
 // Exposed on window because the corresponding DOM nodes use onclick
 // attributes; refactor these to addEventListener once slice 2 lands.
 (window as any).__editorTabSwitch = switchTab;
-(window as any).__editorSetMode = setSessionMode;
-(window as any).__editorSessionRevise = sessionRevise;
-(window as any).__editorSessionApply = sessionApply;
-(window as any).__editorSessionCancel = sessionCancel;
 (window as any).__editorSessionStart = startSession;
-(window as any).__editorSessionStartFromActivity = startSessionFromActivity;
-(window as any).__editorOpenPlanSwitcher = openPlanSwitcher;
 (window as any).__editorPlanSwitcher = openPlanSwitcher;
-(window as any).__editorToggleCompletion = toggleCompletion;
 (window as any).__editorPlanSwitch = switchPlan;
 (window as any).__editorPlanOpen = openPlanFile;
 (window as any).__editorPlanCreate = createPlanFromModal;
@@ -4907,7 +4694,6 @@ function closeAllFiles(): void {
 (window as any).__editorPlanStop = stopPlanRun;
 (window as any).__editorThoughtAct = actOnThought;
 (window as any).__editorThoughtDismiss = dismissThoughtChip;
-(window as any).__editorThoughtsClearAll = clearAllThoughts;
 
 // AI code-block toolbar actions — wired into the onclick= attributes
 // emitted by formatAIResponse(). Registering here (not inline) keeps
