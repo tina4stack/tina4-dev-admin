@@ -231,8 +231,21 @@ export function renderEditor(el: HTMLElement): void {
           <!-- LIST VIEW header — when looking at the thread list. -->
           <header class="threads-pane-head" id="threads-pane-head-list">
             <h3 class="threads-pane-title">Threads</h3>
+            <button type="button" class="threads-icon-btn" onclick="window.__plansToggle()" title="Browse plans" aria-label="Plans" id="plans-toggle-btn">&#128203;</button>
             <button type="button" class="threads-new-btn" onclick="window.__threadsNew()" title="Start a new conversation">+ New</button>
           </header>
+
+          <!-- Plans dropdown — toggled by the 📋 button above. Lists
+               every plan in .tina4/plans/, newest first. Click a row
+               to open the .md file in the code editor on the left.
+               Plans are created via supervisor chat now (no "Create
+               plan" popup), so this is purely for reviewing existing
+               plans. -->
+          <div id="plans-panel" class="plans-panel" hidden>
+            <div class="plans-rows" id="plans-rows">
+              <div class="threads-empty">Loading plans…</div>
+            </div>
+          </div>
 
           <!-- DETAIL VIEW header — when inside a thread. Includes the
                back arrow + thread title + small action menu (rename,
@@ -329,40 +342,13 @@ export function renderEditor(el: HTMLElement): void {
   startHealthPoll();
   refreshCompletionIndicator();
   reviveSessionFromStorage().catch(() => { /* offline is fine */ });
-  // Repaint persisted chat bubbles so a refresh doesn't wipe context.
-  // chatHistory was already loaded from localStorage at module init;
-  // we just need to render the user/assistant messages back into the
-  // activity panel. System messages are filtered out (rebuilt per turn).
-  restoreChatBubbles();
-}
-
-/** Re-render chat bubbles from `chatHistory` after a page reload. The
- *  activity panel starts with the placeholder "How can I help…" line;
- *  if there's any persisted history, drop the placeholder and replay
- *  the user/assistant turns in order. Tool-call metadata is lost
- *  (we don't persist it) — that's fine, it was a per-turn artefact. */
-function restoreChatBubbles(): void {
-  const persistable = chatHistory.filter((m) => m.role !== "system");
-  if (persistable.length === 0) return;
-  const container = document.getElementById("editor-ai-messages");
-  if (!container) return;
-  // Drop the "How can I help with this file?" placeholder when we
-  // have real history to show.
-  const placeholder = container.querySelector(".ai-msg.ai-bot");
-  if (placeholder && placeholder.textContent?.trim().startsWith("How can I help")) {
-    placeholder.remove();
-  }
-  for (const m of persistable) {
-    if (m.role === "user") {
-      addAIMessage(esc(String(m.content)), "user");
-    } else if (m.role === "assistant") {
-      const bubble = document.createElement("div");
-      bubble.className = "ai-msg ai-bot";
-      bubble.innerHTML = formatAIResponse(String(m.content));
-      container.appendChild(bubble);
-    }
-  }
-  container.scrollTop = container.scrollHeight;
+  // (removed: restoreChatBubbles() — per-thread message cache replaces
+  // the old single-chat-history model. bootstrapThreads paints the
+  // active thread's messages directly.)
+  // Migrate-away from the legacy single-chat-history localStorage so
+  // old data doesn't keep haunting fresh threads (this is what caused
+  // "lots of other chats" bleeding into a clean thread).
+  try { localStorage.removeItem("tina4.editor.chatHistory.v1"); } catch {}
 }
 
 // ── Editor state persistence ───────────────────────────────────
@@ -1366,6 +1352,23 @@ function getEditorCSS(): string {
     }
     .threads-new-btn:hover { background: rgba(137,180,250,0.12); }
 
+    /* Plans browse panel — slides in below the header when 📋 is
+       toggled. Borrowed row styling from thread-row-card for visual
+       consistency; rows open the .md file in the code editor. */
+    .plans-panel {
+      flex-shrink: 0; max-height: 200px; overflow-y: auto;
+      border-bottom: 1px solid #313244; background: rgba(0,0,0,0.15);
+    }
+    .plans-panel[hidden] { display: none; }
+    .plans-rows .plan-row {
+      padding: 0.45rem 0.7rem; cursor: pointer;
+      border-bottom: 1px solid #1e1e2e; font-size: 0.72rem;
+      line-height: 1.3;
+    }
+    .plans-rows .plan-row:hover { background: #181825; }
+    .plans-rows .plan-row .plan-name { color: #cdd6f4; font-weight: 500; }
+    .plans-rows .plan-row .plan-meta { color: #9399b2; font-size: 0.65rem; margin-top: 0.15rem; }
+
     /* List + detail bodies share the flex shell — only one visible at a time. */
     .threads-list-view, .threads-detail-view {
       flex: 1; display: flex; flex-direction: column; min-height: 0;
@@ -1572,35 +1575,10 @@ let completionEnabled: boolean = (() => {
  *  but without the intent boost in the FIM prompt. */
 let activeCompletionPlanIntent: string | null = null;
 
-// Conversation history for the chat panel. Persisted to localStorage
-// so an accidental page refresh doesn't wipe context — users were
-// losing 10+ turn conversations to a stray ⌘R. We cap at the last
-// LS_CHAT_MAX entries so the storage doesn't unbounded-grow.
-const LS_CHAT_HISTORY = "tina4.editor.chatHistory.v1";
-const LS_CHAT_MAX = 200;
-
-function loadChatHistory(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(LS_CHAT_HISTORY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-function saveChatHistory(): void {
-  try {
-    // Drop the system message if it ever survived in the array — it's
-    // rebuilt each turn from active-file state and we don't want a
-    // stale snapshot pinned across reloads.
-    const persistable = chatHistory
-      .filter((m) => m.role !== "system")
-      .slice(-LS_CHAT_MAX);
-    localStorage.setItem(LS_CHAT_HISTORY, JSON.stringify(persistable));
-  } catch { /* quota / privacy mode — silent */ }
-}
-const chatHistory: ChatMessage[] = loadChatHistory();
+// (removed: legacy chatHistory + LS_CHAT_HISTORY / load+save helpers.
+// Per-thread message state now lives in threadMessageCache, hydrated
+// from /__dev/api/threads/{id}/messages on switch. The old globals were
+// leaking cross-thread bubbles via restoreChatBubbles on page load.)
 
 /** In-flight request so a new Send cancels a still-streaming response. */
 let chatAbort: AbortController | null = null;
@@ -2693,6 +2671,79 @@ queueMicrotask(() => {
 (window as any).__threadsShowDetail = (id: string) => { void threadsShowDetail(id); };
 (window as any).__threadsNew = () => { void threadsNew(); };
 (window as any).__threadsRenameActive = () => { void threadsRenameActive(); };
+
+// ── Plans browse panel ─────────────────────────────────────────────
+// Plans are created via supervisor chat (the planner agent writes
+// .tina4/plans/<id>-plan.md). This panel just lets the developer
+// review existing plans; clicking opens the .md in the code editor
+// on the left. No "Create" UI — chat is the creation path.
+
+let plansPanelOpen = false;
+
+async function plansToggle(): Promise<void> {
+  const panel = document.getElementById("plans-panel");
+  const btn = document.getElementById("plans-toggle-btn");
+  if (!panel) return;
+  plansPanelOpen = !plansPanelOpen;
+  panel.hidden = !plansPanelOpen;
+  btn?.classList.toggle("active", plansPanelOpen);
+  if (plansPanelOpen) await renderPlansPanel();
+}
+
+async function renderPlansPanel(): Promise<void> {
+  const rows = document.getElementById("plans-rows");
+  if (!rows) return;
+  rows.innerHTML = `<div class="threads-empty">Loading plans…</div>`;
+  try {
+    const r = await callMcpTool("plan_list", {});
+    const plans = (r.ok && Array.isArray((r as any).result)) ? (r as any).result : [];
+    if (!plans.length) {
+      rows.innerHTML = `<div class="threads-empty">No plans yet — they appear here when the planner agent creates one.</div>`;
+      return;
+    }
+    // Newest first by name (filenames start with unix timestamps).
+    const sorted = [...plans].sort((a: any, b: any) =>
+      String(b.name || b.file || "").localeCompare(String(a.name || a.file || ""))
+    );
+    rows.innerHTML = sorted.map((p: any) => {
+      const name = String(p.name || p.file || "");
+      // Server returns full project-relative path (e.g.
+      // ".tina4/plans/1779827045-plan.md" vs "plan/foo.md"); use
+      // that for opening so both directories work.
+      const fullPath = String(p.path || `plan/${name}`);
+      const title = String(p.title || name).slice(0, 60);
+      const done = p.steps_done ?? p.progress?.done ?? 0;
+      const total = p.steps_total ?? p.progress?.total ?? 0;
+      const steps = total > 0 ? `${done}/${total} steps` : "";
+      const current = p.is_current || p.current ? " · ★ current" : "";
+      return `<div class="plan-row" onclick="window.__plansOpen('${esc(fullPath)}')" title="Open ${esc(fullPath)} in editor">
+        <div class="plan-name">${esc(title)}</div>
+        <div class="plan-meta">${esc(name)}${steps ? " · " + esc(steps) : ""}${current}</div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    rows.innerHTML = `<div class="threads-empty" style="color:var(--danger,#f38ba8)">Failed to load plans</div>`;
+  }
+}
+
+/** Open a plan file in the code editor on the left. Caller passes
+ *  the full project-relative path (`.tina4/plans/X.md` or `plan/X.md`)
+ *  returned by plan_list, so we don't have to guess which dir. */
+async function plansOpen(path: string): Promise<void> {
+  try {
+    await openFile(path);
+  } catch (e) {
+    console.error("plansOpen failed", e);
+  }
+  // Auto-close the panel after opening — user has what they wanted.
+  plansPanelOpen = false;
+  const panel = document.getElementById("plans-panel");
+  if (panel) panel.hidden = true;
+  document.getElementById("plans-toggle-btn")?.classList.remove("active");
+}
+
+(window as any).__plansToggle = () => { void plansToggle(); };
+(window as any).__plansOpen = (name: string) => { void plansOpen(name); };
 (window as any).__threadsArchiveActive = () => { void threadsArchiveActive(); };
 (window as any).__threadsArchiveFromList = (id: string) => { void threadsArchiveFromList(id); };
 
@@ -2746,10 +2797,28 @@ async function supervisorChat(
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
 
+  // Attach the currently-open editor file so the supervisor can
+  // interpret deictic phrases ("this file", "this code", "the current
+  // file") without asking. Capped at 60 KB to keep request size sane
+  // — anything larger is probably a build artifact or binary, not the
+  // file the user actually means.
+  const activeFileInfo: { path: string; language: string; content: string } | null = (() => {
+    if (!activeFile) return null;
+    const f = openFiles.find((of) => of.path === activeFile);
+    if (!f) return null;
+    const content = f.content || "";
+    if (content.length > 60_000) return { path: f.path, language: f.language, content: "<too large to inline — ask the user or call file_read>" };
+    return { path: f.path, language: f.language, content };
+  })();
+
   const response = await fetch("/__dev/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: msg, thread_id: threadId }),
+    body: JSON.stringify({
+      message: msg,
+      thread_id: threadId,
+      active_file: activeFileInfo,
+    }),
     signal: abortSignal,
   });
 
@@ -2854,11 +2923,9 @@ async function supervisorChat(
   for (const f of touchedFiles) {
     try { await refreshAfterToolMutation(f); } catch {}
   }
-
-  if (assistantContent) {
-    chatHistory.push({ role: "assistant", content: assistantContent });
-    saveChatHistory();
-  }
+  // (removed: chatHistory push — per-thread state is canonical now;
+  // the assistant message is persisted server-side and re-fetched on
+  // the next paintThreadsChat via loadThreadMessages(force=true).)
 }
 
 // ── Session panel wiring (tabs / mode / health / chips / outcomes) ─
