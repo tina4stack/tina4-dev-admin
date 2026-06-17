@@ -443,43 +443,102 @@ function renderFileTree(): void {
   treeEl.innerHTML = renderDir(".", 0);
 }
 
-/** Drop every cached directory listing and reload everything the
- *  user currently has open in the tree. Call after a file-system
- *  change that we didn't originate (Rust supervisor writes, CLI
- *  scaffolding, external edits, etc.). */
-async function refreshAllOpenDirs(): Promise<void> {
-  // Snapshot the dirs that were loaded — otherwise we'd wipe the
-  // cache and then have nothing to re-fetch. Always include "." so
-  // the root shows up even if it somehow fell out of the set.
+/** Gently refresh git-status decorations on the file tree WITHOUT
+ *  tearing down + re-rendering it.
+ *
+ *  This is the reload-signal path: a file was saved somewhere and its
+ *  git status (M / A / U / D / clean) may have changed. We re-fetch the
+ *  already-loaded directory listings to learn the fresh statuses, update
+ *  the cached entries in place, and then patch ONLY the affected DOM
+ *  nodes — swapping the `git-<status>` class and the dot label on the
+ *  existing `.tree-item` elements.
+ *
+ *  Crucially this never calls `renderFileTree()` (no `innerHTML` rebuild),
+ *  so the tree never flickers, the scroll position is preserved, and the
+ *  user's expanded/collapsed state is untouched. Open editor buffers are
+ *  deliberately NOT resynced — the dashboard IS the editor, and a save
+ *  must never disturb what the user is actively editing.
+ *
+ *  Caveat: because we only patch existing nodes, brand-new files or
+ *  deletions won't appear/disappear until the next explicit tree action
+ *  (expand/collapse, open, or a tool-mutation refresh). That's an
+ *  intentional trade for zero editing disruption on every save. */
+async function applyGitStatusInPlace(): Promise<void> {
+  const treeEl = document.getElementById("editor-file-tree");
+  if (!treeEl) return;
+
+  // Re-fetch only the dirs we've actually loaded — tiny JSON fetches.
+  // We do NOT touch `fileTreeCache` until each fetch resolves, so a
+  // failed/partial fetch can never blank out the live tree.
   const dirs = Array.from(new Set(["." , ...Array.from(fileTreeCache.keys()), ...Array.from(expandedDirs)]));
-  fileTreeCache.clear();
-  // Parallelise — tree reloads are just tiny JSON fetches.
-  await Promise.all(dirs.map((d) => loadFileTree(d).catch(() => { /* tolerate missing */ })));
-  renderFileTree();
+  const fresh = await Promise.all(
+    dirs.map(async (d) => {
+      try {
+        const data = await api<any>(`/files?path=${encodeURIComponent(d)}`);
+        // Keep the branch chip current — cheap and useful on checkout.
+        if (data?.branch) {
+          const branchEl = document.getElementById("editor-branch");
+          if (branchEl) branchEl.textContent = `⎇ ${data.branch}`;
+        }
+        return [d, (data?.entries || []) as any[]] as const;
+      } catch {
+        return null; // tolerate a dir that vanished
+      }
+    }),
+  );
+
+  // Index fresh statuses by path and update the cache in place.
+  const statusByPath = new Map<string, string>();
+  for (const result of fresh) {
+    if (!result) continue;
+    const [dir, entries] = result;
+    fileTreeCache.set(dir, entries);
+    for (const entry of entries) {
+      statusByPath.set(entry.path, entry.git_status || "clean");
+    }
+  }
+
+  // Patch the existing DOM nodes — class swap + dot label only. Reading
+  // `dataset.path` gives us the browser-decoded path so we sidestep any
+  // attribute-selector escaping headaches.
+  const STATUS_CLASSES = ["git-clean", "git-untracked", "git-modified", "git-added", "git-deleted"];
+  const items = treeEl.querySelectorAll<HTMLElement>(".tree-item[data-path]");
+  for (const el of Array.from(items)) {
+    const path = el.dataset.path;
+    if (!path) continue;
+    const status = statusByPath.get(path);
+    if (status === undefined) continue; // node not in the refreshed set
+    el.classList.remove(...STATUS_CLASSES);
+    el.classList.add(`git-${status}`);
+    updateGitDot(el, status);
+  }
 }
 
-/** Reload an open file's buffer from disk if its contents drifted.
- *  Skips files with unsaved edits (the `dirty` flag) to avoid
- *  clobbering the user's typing. */
-async function syncOpenBuffer(filePath: string): Promise<void> {
-  const f = openFiles.find((of) => of.path === filePath);
-  if (!f) return;
-  if (f.dirty) return; // user has unsaved local edits — don't stomp
-  try {
-    const fresh = await api<any>(`/file?path=${encodeURIComponent(filePath)}`);
-    const content: string = fresh?.content ?? "";
-    if (content === f.content) return; // no-op
-    if (f.view) {
-      f.view.dispatch({
-        changes: { from: 0, to: f.view.state.doc.length, insert: content },
-      });
-    }
-    f.content = content;
-    f.dirty = false;
-    renderTabs();
-  } catch {
-    /* file may have been deleted — leave the tab so the user notices */
+/** In-place patch of a single tree item's git dot. Adds, updates, or
+ *  removes the `.tree-git-dot` span to match `status` without rebuilding
+ *  the row. Mirrors `gitDot()`'s label scheme. */
+function updateGitDot(el: HTMLElement, status: string): void {
+  const labels: Record<string, string> = {
+    untracked: "U",
+    modified: "M",
+    added: "A",
+    deleted: "D",
+  };
+  const label = labels[status];
+  let dot = el.querySelector<HTMLElement>(".tree-git-dot");
+  if (!label) {
+    // clean (or unknown) → no dot. CSS hides `.git-clean .tree-git-dot`
+    // anyway, but drop it so the markup matches a fresh render.
+    if (dot) dot.remove();
+    return;
   }
+  if (!dot) {
+    dot = document.createElement("span");
+    dot.className = "tree-git-dot";
+    el.appendChild(dot);
+  }
+  dot.title = status;
+  dot.textContent = label;
 }
 
 // ── Live reload watcher ────────────────────────────────────────────
@@ -491,9 +550,12 @@ async function syncOpenBuffer(filePath: string): Promise<void> {
 // /__dev/api/mtime (for polling fallback).
 //
 // We subscribe to BOTH: WS primary, polling every 3 s as backup
-// (matches the framework's dev-toolbar contract). On any reload
-// signal we refresh the tree and hot-sync open tabs without a full
-// page reload.
+// (matches the framework's dev-toolbar contract). On a reload signal
+// we do the MINIMUM: a gentle, in-place refresh of the file tree's
+// git-status decorations. We deliberately do NOT re-render the tree or
+// resync open editor buffers — the dashboard IS the editor, and a save
+// must never flicker the tree, reset its scroll, or stomp on what the
+// user is actively typing.
 
 let _lastMtime = 0;
 let _reloadSocket: WebSocket | null = null;
@@ -545,16 +607,20 @@ function startLiveReloadWatcher(): void {
   }, 3000);
 }
 
-/** Debounced tree+buffer refresh — bursts of file events (a plan
- *  run writes 5 files in 200 ms) shouldn't produce 5 round-trips. */
+/** Debounced, in-place git-status refresh — bursts of file events (a
+ *  plan run writes 5 files in 200 ms) shouldn't produce 5 round-trips.
+ *
+ *  This is intentionally gentle: it only repaints git-status decorations
+ *  on the EXISTING tree nodes. It never rebuilds the tree and never
+ *  touches open editor buffers, so saving a file leaves the user's
+ *  editing session — cursor, scroll, selection, expanded folders —
+ *  completely undisturbed. */
 let _reloadPending: number | null = null;
 function handleReloadSignal(): void {
   if (_reloadPending !== null) return;
   _reloadPending = window.setTimeout(async () => {
     _reloadPending = null;
-    await refreshAllOpenDirs();
-    // Resync every open file in parallel.
-    await Promise.all(openFiles.map((f) => syncOpenBuffer(f.path)));
+    await applyGitStatusInPlace().catch(() => { /* non-fatal — tree stays as-is */ });
   }, 300);
 }
 
@@ -583,6 +649,7 @@ function renderDir(dirPath: string, depth: number): string {
       const dirDot = gitDot(entry.git_status);
       const isActiveDir = activeDir === entry.path;
       html += `<div class="tree-item tree-dir ${statusClass} ${isActiveDir ? "active" : ""}" style="padding-left:${indent}px"
+        data-path="${escapedPath}"
         onclick="window.__editorToggleDir('${escapedPath}')"
         oncontextmenu="event.preventDefault();window.__editorCtxMenu(event,'${escapedPath}',true)">
         <span class="tree-arrow">${arrow}</span>
@@ -599,6 +666,7 @@ function renderDir(dirPath: string, depth: number): string {
       const isActive = activeFile === entry.path;
       const fileDot = gitDot(entry.git_status);
       html += `<div class="tree-item tree-file ${statusClass} ${isActive ? "active" : ""}" style="padding-left:${indent + 16}px"
+        data-path="${escapedPath}"
         onclick="window.__editorOpenFile('${escapedPath}')"
         oncontextmenu="event.preventDefault();window.__editorCtxMenu(event,'${escapedPath}',false)">
         <span class="tree-icon">${icon}</span>
