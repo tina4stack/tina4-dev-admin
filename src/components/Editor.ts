@@ -57,6 +57,10 @@ import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { rust } from "@codemirror/legacy-modes/mode/rust";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { java } from "@codemirror/legacy-modes/mode/clike";
 
 // ── State ──
 interface OpenFile {
@@ -141,6 +145,12 @@ function langExtension(lang: string) {
     case "shell": return StreamLanguage.define(shell);
     case "toml": return StreamLanguage.define(toml);
     case "env": return StreamLanguage.define(properties);
+    case "ruby": return StreamLanguage.define(ruby);
+    case "rust": return StreamLanguage.define(rust);
+    case "go": return StreamLanguage.define(go);
+    case "java": return StreamLanguage.define(java);
+    case "scss":
+    case "sass": return css();   // css() is already imported; close enough for SCSS
     // Twig templates use Jinja2-style syntax — `{%`, `{{`, `{#`,
     // `extends`/`block`/`if`/`for` keywords — embedded inside HTML.
     // Earlier we just used the Jinja2 stream-mode for the whole file,
