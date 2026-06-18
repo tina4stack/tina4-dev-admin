@@ -45,6 +45,16 @@ looks simple but has specific rules. Getting them wrong produces silent bugs —
 once but never update, buttons don't disable, inputs don't bind. This reference is the source
 of truth, derived from the actual source code.
 
+## Backend API Lookups — Use the Live Index
+
+tina4-js talks to a Tina4 backend (Python / PHP / Ruby / Node). When you need a backend route's shape,
+an ORM field, or a framework method signature, don't guess from memory — query the running backend's
+live API index through its MCP tools (available with `tina4 serve` + `TINA4_DEBUG=true`):
+`api_search("…")` to find a class or method, `api_class("User")` for its full surface, and
+`api_method("Database", "fetch")` for an exact signature. These reflect the actual installed version,
+so the frontend wires up against real endpoints instead of invented ones. (For frontend reactivity
+itself — signals, `html`, components — the rules below are the source of truth.)
+
 ## The Three Rules That Fix 90% of Mistakes
 
 Before writing any tina4-js code, internalize these:
@@ -159,6 +169,83 @@ html`
 ```ts
 html`<button ?disabled=${() => loading.value || !isValid.value}>Submit</button>`
 ```
+
+## Footguns That Cost Real Debugging Time
+
+These bite even when you know the Three Rules. They came out of real app work — read them.
+
+### ⚠ THE BIGGEST ONE: one `${...}` per attribute — never mix static text with a dynamic part
+
+An attribute value must be a **single interpolation**. Partial interpolation — static text glued to a `${...}` inside one attribute — does **not** reliably merge the parts; the dynamic piece silently fails to apply.
+
+```ts
+// ❌ WRONG — static "card " + a dynamic part in one attribute; the binding is dropped
+html`<div class="card ${() => active.value ? 'active' : ''}">`
+html`<a href="/user/${id}">`               // partial — unreliable
+
+// ✅ RIGHT — the WHOLE attribute value is one expression
+html`<div class=${() => 'card ' + (active.value ? 'active' : '')}>`
+html`<a href=${() => `/user/${id.value}`}>`    // build the whole string inside the expr
+html`<a href=${`/user/${userId}`}>`             // static interpolation, evaluated once
+```
+
+**The rule: if an attribute contains any `${}`, the ENTIRE value must be that one `${}`.** Compose the full string inside the expression — don't concatenate static text with `${}` in the template.
+
+### Bind form values with `.value`, never as a reactive child
+
+```ts
+// ✅ property binding — two-way, no DOM churn
+html`<textarea .value=${() => form.value.note} @input=${e => setNote(e.target.value)}></textarea>`
+
+// ❌ value as a reactive child — leaks a comment marker like <!--t4:12--> into the field
+html`<textarea>${() => form.value.note}</textarea>`
+```
+(Same root cause as "never put inputs inside reactive blocks" above — always drive form elements through `.value` / `@input` / `?disabled`.)
+
+### Hash-router links use the BARE path — the router adds the `#`
+
+```ts
+// ✅ → navigates to #/shop
+html`<a href="/shop">Shop</a>`
+
+// ❌ → produces ##/shop → 404
+html`<a href="#/shop">Shop</a>`
+```
+
+For an in-template control that should **toggle state, not navigate**, don't use `<a href="#">` (it routes). Use a button-role element:
+
+```ts
+html`<span role="button" @click=${() => open.value = !open.value}>Toggle</span>`
+```
+
+### Defer navigation that depends on a signal you just wrote
+
+A computed or route-guard reads the **old** value if you `navigate()` synchronously right after writing the signal. Defer the navigation one tick so the write settles first:
+
+```ts
+setUser(u);
+setTimeout(() => navigate('/shop'), 0);   // ✅ the guard now sees isLoggedIn === true
+```
+
+Same fix for any write→navigate cascade (e.g. `placeOrder()` → clear cart → go to `/success`) — deferring avoids a 404 race.
+
+### Render the primary list as a top-level reactive block
+
+Render the main list directly as its own `${() => ...}`:
+
+```ts
+// ✅ flat, reliable
+html`<ul>${() => items.value.map(i => html`<li>${i.name}</li>`)}</ul>`
+```
+
+Deeply nesting a list inside a ternary that itself returns `html` is fragile — the inner map may not re-render:
+
+```ts
+// ❌ fragile — flatten it instead
+html`${() => cond.value ? html`...${() => items.value.map(...)}...` : html`...`}`
+```
+
+If one list "won't update" but a sibling list does, this nesting is the usual cause — pull the list up to its own top-level `${() => ...}` block.
 
 ## Signals — Reactive State
 
