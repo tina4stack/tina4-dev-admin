@@ -2929,27 +2929,68 @@ async function groundingToggle(): Promise<void> {
   if (groundingPanelOpen) await renderGroundingPanel();
 }
 
+/** The grounding status the agent / framework returns for the token panel. */
+export interface GroundingStatus {
+  configured?: boolean;
+  source?: string; // "personal" | "free" | "none" (absent on older backends)
+  last4?: string;
+  url?: string;
+}
+
+/**
+ * Decide the panel's status line + (for the free trial) the persistent
+ * register nudge, from a grounding status. Pure — no DOM, no fetch — so the
+ * three-state logic is unit-testable in isolation. `source` is authoritative
+ * when present; older backends send only `configured`, so we fall back to it.
+ */
+export function groundingStatusView(status: GroundingStatus): { source: string; stateHtml: string; nudgeHtml: string } {
+  const url = esc(status.url || "https://mcp.tina4.com");
+  const source = status.source || (status.configured ? "personal" : "none");
+  if (source === "personal") {
+    return {
+      source,
+      stateHtml: `<span style="color:var(--success,#a6e3a1)">&#9679; Your token</span> <span style="opacity:0.6">(…${esc(status.last4 || "")})</span>`,
+      nudgeHtml: "",
+    };
+  }
+  if (source === "free") {
+    // Free trial — grounding works, but persistently nudge them to register.
+    return {
+      source,
+      stateHtml: `<span style="color:var(--warn,#f9e2af)">&#127873; Free trial</span> — grounding via <code>${url}</code> on the shared <code>FREE-TOKEN</code>.`,
+      nudgeHtml: `<div style="margin:0.4rem 0;padding:0.4rem 0.55rem;border:1px solid var(--warn,#f9e2af);border-radius:6px;background:color-mix(in srgb, var(--warn,#f9e2af) 12%, transparent)">
+      You're trying Tina4 grounding for free. Register for your <strong>own</strong> token — higher limits, no shared rate cap.
+      <a href="https://profile.tina4.com" target="_blank" rel="noopener" style="color:var(--accent,#89b4fa);font-weight:600">Register at profile.tina4.com &rarr;</a>
+    </div>`,
+    };
+  }
+  return {
+    source,
+    stateHtml: `<span style="color:var(--warn,#f9e2af)">&#9675; Not set</span> — using local corpus fallback`,
+    nudgeHtml: "",
+  };
+}
+
 async function renderGroundingPanel(): Promise<void> {
   const body = document.getElementById("grounding-body");
   if (!body) return;
   body.innerHTML = `<div class="threads-empty">Loading…</div>`;
-  let status: { configured?: boolean; last4?: string; url?: string } = {};
+  let status: { configured?: boolean; source?: string; last4?: string; url?: string } = {};
   try {
     const r = await fetch("/__dev/api/grounding/status");
     if (r.ok) status = await r.json();
   } catch { /* agent may be offline — show the entry form regardless */ }
 
   const url = esc(status.url || "https://mcp.tina4.com");
-  const stateHtml = status.configured
-    ? `<span style="color:var(--success,#a6e3a1)">&#9679; Configured</span> <span style="opacity:0.6">(…${esc(status.last4 || "")})</span>`
-    : `<span style="color:var(--warn,#f9e2af)">&#9675; Not set</span> — using local corpus fallback`;
+  const { stateHtml, nudgeHtml } = groundingStatusView(status);
 
   body.innerHTML = `
     <div style="font-weight:600;margin-bottom:0.35rem">Framework grounding</div>
     <div style="opacity:0.85;margin-bottom:0.5rem">Ground the coder against <code>${url}</code> (version-current Tina4 API) instead of the local fallback.</div>
     <div style="margin-bottom:0.5rem">${stateHtml}</div>
+    ${nudgeHtml}
     <div style="display:flex;gap:4px">
-      <input type="password" id="grounding-token-input" class="input" placeholder="Paste TINA4_MCP_TOKEN…"
+      <input type="password" id="grounding-token-input" class="input" placeholder="Paste your own TINA4_MCP_TOKEN…"
         style="flex:1;font-size:0.72rem;padding:4px 8px;height:28px" autocomplete="off" />
       <button type="button" class="btn btn-sm btn-primary" style="font-size:0.65rem;padding:2px 10px"
         onclick="window.__groundingSave()">Save</button>
