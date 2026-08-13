@@ -2934,6 +2934,7 @@ export interface GroundingStatus {
   configured?: boolean;
   source?: string; // "personal" | "free" | "none" (absent on older backends)
   last4?: string;
+  dev_email?: string; // on the free trial: the git email that identifies it
   url?: string;
 }
 
@@ -2955,11 +2956,16 @@ export function groundingStatusView(status: GroundingStatus): { source: string; 
   }
   if (source === "free") {
     // Free trial — grounding works, but persistently nudge them to register.
+    // If the agent reported the git email that identifies the trial, show it
+    // so the developer knows exactly what rides the shared token (transparency).
+    const attributed = status.dev_email
+      ? ` Identified to the server as <code>${esc(status.dev_email)}</code>.`
+      : "";
     return {
       source,
       stateHtml: `<span style="color:var(--warn,#f9e2af)">&#127873; Free trial</span> — grounding via <code>${url}</code> on the shared <code>FREE-TOKEN</code>.`,
       nudgeHtml: `<div style="margin:0.4rem 0;padding:0.4rem 0.55rem;border:1px solid var(--warn,#f9e2af);border-radius:6px;background:color-mix(in srgb, var(--warn,#f9e2af) 12%, transparent)">
-      You're trying Tina4 grounding for free. Register for your <strong>own</strong> token — higher limits, no shared rate cap.
+      You're trying Tina4 grounding for free.${attributed} Register for your <strong>own</strong> token — higher limits, no shared rate cap.
       <a href="https://profile.tina4.com" target="_blank" rel="noopener" style="color:var(--accent,#89b4fa);font-weight:600">Register at profile.tina4.com &rarr;</a>
     </div>`,
     };

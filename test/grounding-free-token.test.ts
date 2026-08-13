@@ -18,6 +18,19 @@ describe("grounding panel — FREE-TOKEN trial states", () => {
     expect(v.nudgeHtml).toContain("href=\"https://profile.tina4.com\"");
   });
 
+  it("free trial surfaces the attributed git email when the agent reports it", () => {
+    const v = groundingStatusView({ source: "free", dev_email: "dev@tina4.test" });
+    expect(v.nudgeHtml).toContain("dev@tina4.test");
+    // Still nudges to register alongside the transparency line.
+    expect(v.nudgeHtml).toContain("profile.tina4.com");
+  });
+
+  it("free trial without a dev_email omits the attribution line cleanly", () => {
+    const v = groundingStatusView({ source: "free" });
+    expect(v.nudgeHtml).not.toContain("Identified to the server");
+    expect(v.nudgeHtml).toContain("profile.tina4.com");
+  });
+
   it("personal token shows 'Your token' with last4 and NO nudge", () => {
     const v = groundingStatusView({ source: "personal", last4: "aB9x" });
     expect(v.source).toBe("personal");
