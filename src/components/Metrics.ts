@@ -139,7 +139,7 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
   // Health color: complexity + tests + dependencies
   function healthColor(f: any): string {
     const cc = Math.min((f.avg_complexity || 0) / 10, 1);
-    const untested = f.has_tests ? 0 : 1;
+    const untested = f.has_referencing_test ? 0 : 1;
     const deps = Math.min((f.dep_count || 0) / 5, 1);
     const score = cc * 0.4 + untested * 0.4 + deps * 0.2;
     const s = Math.max(0, Math.min(1, score));
@@ -342,7 +342,7 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
         ctx.beginPath(); ctx.arc(b.x, dy2, mrad, 0, Math.PI * 2); ctx.fillStyle = "#ea580c"; ctx.fill();
         ctx.fillStyle = "#fff"; ctx.font = `bold ${mfs}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("D", b.x, dy2 + mfs * 0.35);
       }
-      if (drawR > 14 && b.f.has_tests) {
+      if (drawR > 14 && b.f.has_referencing_test) {
         const ty = b.y + drawR - mrad - 3;
         ctx.beginPath(); ctx.arc(b.x, ty, mrad, 0, Math.PI * 2); ctx.fillStyle = "#16a34a"; ctx.fill();
         ctx.fillStyle = "#fff"; ctx.font = `bold ${mfs}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("T", b.x, ty + mfs * 0.35);
