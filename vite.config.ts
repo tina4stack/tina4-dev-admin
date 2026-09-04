@@ -18,46 +18,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Chat/agent calls go to the Rust agent server
-      "/__dev/api/execute": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/execute", "/execute"),
-      },
-      "/__dev/api/chat": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/chat", "/chat"),
-      },
-      "/__dev/api/thoughts": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/thoughts", "/thoughts"),
-      },
-      "/__dev/api/agents": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/agents", "/agents"),
-      },
-      "/__dev/api/history": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/history", "/history"),
-      },
-      // Supervisor session lifecycle — git worktree + branch management.
-      "/__dev/api/supervise": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/supervise", "/supervise"),
-      },
-      // Threads — list/create/rename/archive. Sub-paths
-      // (/__dev/api/threads/{id}, /__dev/api/threads/{id}/messages)
-      // are caught by the same prefix rewrite.
-      "/__dev/api/threads": {
-        target: agent,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace("/__dev/api/threads", "/threads"),
-      },
+      // The agent chat proxies (/__dev/api/{execute,chat,thoughts,agents,
+      // history,supervise,threads} → Rust agent) were removed with the
+      // dev-admin agent chat panel in 3.13.132. What remains is grounding
+      // (still agent-backed for token resolution), the framework backend
+      // catch-all, live-reload, and the AI model stack for inline completion.
+
       // Framework-grounding MCP (mcp.tina4.com) token config — proxied to the
       // Rust agent, which owns the .env write + token resolution.
       // /__dev/api/grounding/{status,token} → agent /mcp/{status,token}
