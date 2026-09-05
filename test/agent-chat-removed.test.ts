@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderEditor } from "../src/components/Editor";
 
 // The agent chat (Rust supervisor: threads / chat / execute / sessions /
-// thoughts) was removed. This suite is the regression that keeps it gone:
-// the chat window handlers must NOT be wired, the surviving tools (grounding,
-// plans, completion) must be, and renderEditor must paint the Tools pane in
-// the right panel — never a threads chat pane with a reply input.
+// thoughts) and the right-side Tools panel were removed. This suite is the
+// regression that keeps them gone: the chat window handlers must NOT be wired,
+// the surviving grounding/plans handlers must remain available to the MCP
+// workflow, and renderEditor must remain a full-width editor with no panel.
 
 describe("agent chat removed — window wiring", () => {
   it("does NOT wire any agent-chat / supervisor handler on window", () => {
@@ -44,7 +44,7 @@ describe("agent chat removed — window wiring", () => {
   });
 });
 
-describe("agent chat removed — right panel is the Tools pane, not a chat", () => {
+describe("agent chat and right-side Tools panel removed", () => {
   beforeEach(() => {
     // renderEditor fetches the file tree + git status + plan and opens a
     // live-reload socket. Stub each with the shape its caller reads so the
@@ -63,15 +63,16 @@ describe("agent chat removed — right panel is the Tools pane, not a chat", () 
     document.body.innerHTML = `<div id="app"></div>`;
   });
 
-  it("paints the grounding + plans Tools pane and no chat input", () => {
+  it("keeps the editor full-width and paints no chat or Tools panel", () => {
     renderEditor(document.getElementById("app")!);
 
-    // The right pane exists and is the Tools pane (grounding + plans toggles).
-    expect(document.getElementById("editor-ai-panel")).not.toBeNull();
-    expect(document.getElementById("grounding-toggle-btn")).not.toBeNull();
-    expect(document.getElementById("plans-toggle-btn")).not.toBeNull();
-    expect(document.getElementById("grounding-panel")).not.toBeNull();
-    expect(document.getElementById("plans-panel")).not.toBeNull();
+    // The right-side panel and its controls were removed with the agent
+    // harness. Grounding and plans remain handler-level MCP integrations.
+    expect(document.getElementById("editor-right-panel")).toBeNull();
+    expect(document.getElementById("editor-ai-panel")).toBeNull();
+    expect(document.getElementById("editor-deps-panel")).toBeNull();
+    expect(document.getElementById("grounding-toggle-btn")).toBeNull();
+    expect(document.getElementById("plans-toggle-btn")).toBeNull();
 
     // The agent chat DOM is gone: no reply input, no chat message list, no
     // threads list/detail, no "+ New conversation" button.
