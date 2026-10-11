@@ -174,7 +174,10 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
         const dx = px - b.x, dy = py - b.y;
         if (Math.sqrt(dx * dx + dy * dy) < r + b.r + 2) { collides = true; break; }
       }
-      if (!collides && px > r + 2 && px < W - r - 2 && py > r + 25 && py < H - r - 2) {
+      // No viewport bound here — the spiral is free to grow past the window so the
+      // bubbles stretch out instead of being crammed in. The viewport is just a
+      // window you zoom/pan/Fit over a larger world.
+      if (!collides) {
         bubbles.push({ x: px, y: py, vx: 0, vy: 0, r, color, f });
         placed = true; break;
       }
@@ -186,6 +189,17 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
   }
 
   const edges = buildDependencyEdges(bubbles.map((b) => b.f.path), depGraph);
+
+  // A world much larger than the viewport so the cluster settles at its natural,
+  // non-overlapping size. The old clamp pinned every bubble inside W x H, so a
+  // project with more bubbles than fit was crammed and could never be freed by
+  // zooming out. The span is driven by the total bubble footprint: enough room
+  // for the packed cluster plus slack, and never smaller than the window.
+  const worldSpan = Math.max(
+    W,
+    H,
+    Math.sqrt(bubbles.reduce((s, b) => s + b.r * b.r, 0)) * 7,
+  );
 
   // Create canvas
   const canvas = document.createElement("canvas");
@@ -207,12 +221,34 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
   document.getElementById("metrics-canvas-wrap")!.appendChild(btnWrap);
 
   document.getElementById("metrics-zoom-in")?.addEventListener("click", () => { zoom = Math.min(5, zoom * 1.3); });
-  document.getElementById("metrics-zoom-out")?.addEventListener("click", () => { zoom = Math.max(0.3, zoom * 0.7); });
-  document.getElementById("metrics-zoom-fit")?.addEventListener("click", () => { zoom = 1; panX = 0; panY = 0; });
+  document.getElementById("metrics-zoom-out")?.addEventListener("click", () => { zoom = Math.max(0.05, zoom * 0.7); });
+  document.getElementById("metrics-zoom-fit")?.addEventListener("click", () => { fitView(); });
   const ctx = canvas.getContext("2d")!;
 
   let hoveredIdx = -1, dragIdx = -1, dragOX = 0, dragOY = 0;
   let panX = 0, panY = 0, zoom = 1, panning = false, panSX = 0, panSY = 0, panOX = 0, panOY = 0;
+
+  // Frame the whole spread: measure the bubbles' bounding box and set zoom + pan
+  // so every bubble sits inside the viewport. This is what "Fit" should do -
+  // the old version just reset to 1:1, which left a big cluster half off-screen.
+  function fitView(): void {
+    if (!bubbles.length) return;
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const b of bubbles) {
+      if (b.x - b.r < minx) minx = b.x - b.r;
+      if (b.x + b.r > maxx) maxx = b.x + b.r;
+      if (b.y - b.r < miny) miny = b.y - b.r;
+      if (b.y + b.r > maxy) maxy = b.y + b.r;
+    }
+    const bw = Math.max(1, maxx - minx), bh = Math.max(1, maxy - miny);
+    const pad = 0.9; // leave a little margin around the edge
+    zoom = Math.max(0.05, Math.min(2, Math.min(W / bw, H / bh) * pad));
+    panX = W / 2 - ((minx + maxx) / 2) * zoom;
+    panY = H / 2 - ((miny + maxy) / 2) * zoom;
+  }
+  // Auto-fit once the layout has settled so the first view shows everything,
+  // zoomed out, rather than a packed centre.
+  setTimeout(() => fitView(), 1400);
 
   // Physics simulation
   function simulate(): void {
@@ -268,8 +304,10 @@ function renderCanvasBubbles(files: any[], container: HTMLElement, depGraph: Rec
       b.vx = Math.max(-maxV, Math.min(maxV, b.vx));
       b.vy = Math.max(-maxV, Math.min(maxV, b.vy));
       b.x += b.vx; b.y += b.vy;
-      b.x = Math.max(b.r + 2, Math.min(W - b.r - 2, b.x));
-      b.y = Math.max(b.r + 25, Math.min(H - b.r - 2, b.y));
+      // Clamp to the large world (centred on the gravity centre), NOT the viewport,
+      // so bubbles spread out freely and the window just pans/zooms over them.
+      b.x = Math.max(cx - worldSpan, Math.min(cx + worldSpan, b.x));
+      b.y = Math.max(cy - worldSpan, Math.min(cy + worldSpan, b.y));
     }
   }
 
