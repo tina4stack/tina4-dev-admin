@@ -43,6 +43,10 @@ interface OpenFile {
   language: string;
   dirty: boolean;
   view?: EditorView;
+  // The file changed on disk while THIS buffer had unsaved edits. We never
+  // clobber unsaved work, so we flag the conflict on the tab instead. A clean
+  // buffer is silently adopted from disk and never carries this flag.
+  diskChanged?: boolean;
 }
 
 let openFiles: OpenFile[] = [];
@@ -173,12 +177,12 @@ export function renderEditor(el: HTMLElement): void {
         <div id="editor-file-tree" class="editor-file-tree"></div>
         <div class="editor-scaffold-bar">
           <div class="scaffold-label">Scaffold</div>
-          <div class="scaffold-buttons">
-            <button class="scaffold-btn" onclick="window.__scaffold('route')" title="Generate route file">+ Route</button>
-            <button class="scaffold-btn" onclick="window.__scaffold('model')" title="Generate ORM model">+ Model</button>
-            <button class="scaffold-btn" onclick="window.__scaffold('migration')" title="Generate migration">+ Migration</button>
-            <button class="scaffold-btn" onclick="window.__scaffold('middleware')" title="Generate middleware">+ Middleware</button>
+          <div class="scaffold-form">
+            <select id="scaffold-kind" class="scaffold-select" onchange="window.__scaffoldKindChange()" title="What to scaffold"></select>
+            <input id="scaffold-name" class="scaffold-input" placeholder="name" onkeydown="if(event.key==='Enter')window.__scaffoldGenerate()" />
+            <button class="scaffold-btn scaffold-gen" onclick="window.__scaffoldGenerate()" title="Generate">Generate</button>
           </div>
+          <div id="scaffold-hint" class="scaffold-hint"></div>
           <div class="scaffold-sep"></div>
           <div class="scaffold-buttons">
             <button class="scaffold-btn scaffold-run" onclick="window.__scaffoldRun('migrate')" title="Run pending migrations">▶ Migrate</button>
@@ -215,6 +219,8 @@ export function renderEditor(el: HTMLElement): void {
   // expanded folders, open tabs, and which tab was active — from
   // localStorage. Browser-level durability so F5 doesn't wipe context.
   loadFileTree(".").then(() => restoreEditorState());
+  // Fill the scaffold dropdown from the framework's generator list.
+  populateScaffoldKinds();
   // Populate the plan indicator (and, through it, the inline-completion
   // plan intent) on initial load via the MCP plan_current tool.
   callMcpTool("plan_current", {}).then((r) => {
@@ -315,6 +321,43 @@ async function loadFileTree(dirPath: string): Promise<void> {
   } catch (e: any) {
     console.error("Failed to load file tree:", e);
   }
+}
+
+/** Parse the generator's "Created <path>" lines into the list of new paths. */
+function pathsFromOutput(output?: string): string[] {
+  if (!output) return [];
+  const paths: string[] = [];
+  const re = /Created\s+(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(output))) paths.push(m[1]);
+  return paths;
+}
+
+/** Surface just-created files in the tree WITHOUT a full refresh: expand each
+ *  file's ancestor folders and re-fetch ONLY those folders (so a new file - or
+ *  a new directory a generator made along the way, e.g. src/services/ - shows
+ *  immediately), then render once. Touches the path's folders only, never the
+ *  whole tree, and the folder auto-opens to reveal the file like an IDE does. */
+async function revealNewFiles(paths: string[]): Promise<void> {
+  const dirs = new Set<string>(["."]);
+  for (const path of paths) {
+    const parts = path.split("/");
+    let cur = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      cur = cur ? cur + "/" + parts[i] : parts[i];
+      expandedDirs.add(cur);
+      dirs.add(cur);
+    }
+  }
+  await Promise.all(
+    [...dirs].map(async (d) => {
+      try {
+        const data = await api<any>(`/files?path=${encodeURIComponent(d)}`);
+        fileTreeCache.set(d, data.entries || []);
+      } catch { /* leave this folder's cache as-is */ }
+    }),
+  );
+  renderFileTree();
 }
 
 function renderFileTree(): void {
@@ -501,7 +544,63 @@ function handleReloadSignal(): void {
   _reloadPending = window.setTimeout(async () => {
     _reloadPending = null;
     await applyGitStatusInPlace().catch(() => { /* non-fatal — tree stays as-is */ });
+    await resyncOpenFilesFromDisk().catch(() => { /* non-fatal — buffers stay as-is */ });
   }, 300);
+}
+
+/** Re-read every open file from disk after a change (an external edit, an AI
+ *  agent, a SCSS recompile). A buffer with NO unsaved edits adopts the new
+ *  content in place - cursor/scroll preserved - so the editor reflects reality
+ *  instead of showing stale text. A buffer WITH unsaved edits is never
+ *  clobbered: it keeps the user's work and the tab flags "changed on disk".
+ *  This is the editor half of "both update when code changes" - the preview
+ *  reloads, and an open file the user is NOT editing refreshes too. */
+async function resyncOpenFilesFromDisk(): Promise<void> {
+  let changed = false;
+  for (const file of openFiles) {
+    // Raster images carry no text buffer (content is ""); nothing to resync.
+    if (file.language === "image") continue;
+    let diskContent: string;
+    try {
+      const data = await api<any>(`/file?path=${encodeURIComponent(file.path)}`);
+      diskContent = data.content;
+    } catch {
+      // The file may have been deleted or moved - leave the buffer untouched.
+      continue;
+    }
+    if (diskContent === file.content) {
+      if (file.diskChanged) { file.diskChanged = false; changed = true; }
+      continue;
+    }
+    if (file.dirty) {
+      // Unsaved edits AND the file moved under us: keep the user's work, flag it.
+      if (!file.diskChanged) { file.diskChanged = true; changed = true; }
+      continue;
+    }
+    // Clean buffer - adopt the disk content.
+    file.content = diskContent;
+    file.diskChanged = false;
+    changed = true;
+    const view = file.view;
+    if (view) {
+      // Replace the whole document, keeping the caret where it was (clamped to
+      // the new length). Dispatching fires the updateListener, which would mark
+      // the buffer dirty - so we reset the flag right after, since it now MATCHES
+      // disk and carries no unsaved edits.
+      const head = Math.min(view.state.selection.main.head, diskContent.length);
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: diskContent },
+        selection: { anchor: head },
+        scrollIntoView: false,
+      });
+      file.dirty = false;
+    } else if (file.language === "markdown" || file.language === "svg") {
+      // Preview-rendered files (no live CodeMirror view in the preview pane):
+      // re-render if this is the one on screen.
+      if (file.path === activeFile) renderContent();
+    }
+  }
+  if (changed) renderTabs();
 }
 
 function renderDir(dirPath: string, depth: number): string {
@@ -545,18 +644,51 @@ function renderDir(dirPath: string, depth: number): string {
       const icon = fileIcon(entry.name);
       const isActive = activeFile === entry.path;
       const fileDot = gitDot(entry.git_status);
+      const eye = previewUrlFor(entry.path)
+        ? `<span class="tree-eye" title="Preview this page" onclick="event.stopPropagation();window.__editorPreview('${escapedPath}')">${EYE_SVG}</span>`
+        : "";
       html += `<div class="tree-item tree-file ${statusClass} ${isActive ? "active" : ""}" style="padding-left:${indent + 16}px"
         data-path="${escapedPath}"
         onclick="window.__editorOpenFile('${escapedPath}')"
         oncontextmenu="event.preventDefault();window.__editorCtxMenu(event,'${escapedPath}',false)">
         <span class="tree-icon">${icon}</span>
         <span class="tree-name">${esc(entry.name)}</span>
+        ${eye}
         ${fileDot}
       </div>`;
     }
   }
 
   return html;
+}
+
+// A small eye shown next to previewable files in the tree.
+const EYE_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z"/><circle cx="8" cy="8" r="2"/></svg>';
+
+/** The URL a file renders at, or null when it is not previewable. A page
+ *  template (src/templates/pages/<name>.twig) maps to its route /<name>
+ *  (index -> /), and a static HTML file under public/ to its served path. */
+function previewUrlFor(path: string): string | null {
+  const p = path.replace(/\\/g, "/");
+  const page = p.match(/(?:^|\/)templates\/pages\/(.+)\.twig$/);
+  if (page) { const slug = page[1]; return slug === "index" ? "/" : "/" + slug; }
+  const htmlPublic = p.match(/(?:^|\/)public\/(.+\.html?)$/i);
+  if (htmlPublic) return "/" + htmlPublic[1];
+  return null;
+}
+
+/** Preview a file: in the split view drive the right-hand preview iframe;
+ *  otherwise open the rendered URL in a reusable preview window. */
+function editorPreview(path: string): void {
+  const url = previewUrlFor(path);
+  if (!url) return;
+  try {
+    if (window.parent !== window) {
+      const pv = window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
+      if (pv) { pv.src = url; return; }
+    }
+  } catch { /* cross-origin - fall through to a window */ }
+  window.open(url, "tina4preview");
 }
 
 function fileIcon(name: string): string {
@@ -760,10 +892,13 @@ function renderTabs(): void {
     const name = f.path.split("/").pop() || f.path;
     const isActive = f.path === activeFile;
     const dirtyDot = f.dirty ? `<span style="color:var(--warn);margin-left:2px">●</span>` : "";
+    // A dirty buffer whose file also changed on disk: flag the conflict so the
+    // user knows the two have diverged (we kept their unsaved edits).
+    const conflictDot = f.diskChanged ? `<span title="Changed on disk - your unsaved edits are kept" style="color:var(--err,#f38ba8);margin-left:2px">&#9888;</span>` : "";
     return `<div class="editor-tab ${isActive ? "active" : ""}"
         onclick="window.__editorSwitchFile('${esc(f.path)}')"
         oncontextmenu="event.preventDefault();window.__editorTabCtxMenu(event,'${esc(f.path)}')">
-      <span>${esc(name)}${dirtyDot}</span>
+      <span>${esc(name)}${dirtyDot}${conflictDot}</span>
       <span class="editor-tab-close" onclick="event.stopPropagation();window.__editorCloseFile('${esc(f.path)}')">&times;</span>
     </div>`;
   }).join("");
@@ -1158,6 +1293,9 @@ function getEditorCSS(): string {
     .tree-arrow { width: 12px; text-align: center; font-size: 0.7rem; flex-shrink: 0; }
     .tree-icon { font-size: 0.75rem; flex-shrink: 0; }
     .tree-name { overflow: hidden; text-overflow: ellipsis; }
+    .tree-eye { margin-left: auto; opacity: 0.4; display: inline-flex; align-items: center; cursor: pointer; flex-shrink: 0; padding: 0 2px; color: var(--text, #cdd6f4); }
+    .tree-eye:hover { opacity: 1; color: #89b4fa; }
+    .tree-item.active .tree-eye { opacity: 0.75; }
 
     /* Git status colours */
     .git-untracked .tree-name { color: #a6e3a1; }
@@ -1218,6 +1356,11 @@ function getEditorCSS(): string {
     .scaffold-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted, #6c7086); margin-bottom: 4px; }
     .scaffold-buttons { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 4px; }
     .scaffold-btn { font-size: 0.65rem; padding: 3px 6px; background: var(--surface, #313244); border: 1px solid var(--border, #45475a); border-radius: 3px; color: var(--text, #cdd6f4); cursor: pointer; white-space: nowrap; }
+    .scaffold-form { display: flex; gap: 3px; margin-bottom: 4px; align-items: center; }
+    .scaffold-select { flex: 1 1 auto; min-width: 0; font-size: 0.68rem; padding: 3px 4px; background: var(--surface, #313244); border: 1px solid var(--border, #45475a); border-radius: 3px; color: var(--text, #cdd6f4); }
+    .scaffold-input { flex: 1 1 auto; min-width: 0; width: 50px; font-size: 0.68rem; padding: 3px 5px; background: var(--bg, #181825); border: 1px solid var(--border, #45475a); border-radius: 3px; color: var(--text, #cdd6f4); }
+    .scaffold-gen { font-weight: 600; flex: 0 0 auto; }
+    .scaffold-hint { font-size: 0.62rem; color: var(--muted, #6c7086); margin-bottom: 4px; min-height: 1em; line-height: 1.3; }
     .scaffold-btn:hover { background: rgba(255,255,255,0.08); }
     .scaffold-btn.scaffold-run { color: var(--success, #a6e3a1); border-color: var(--success, #a6e3a1); }
     .scaffold-btn.scaffold-run:hover { background: rgba(166,227,161,0.1); }
@@ -1876,26 +2019,65 @@ async function depsInstall(name: string, version: string): Promise<void> {
 // Create a new route/model/migration/middleware. The backend contract (identical
 // across Python/PHP/Ruby/Node) is `POST /scaffold/run {kind, name}` — it runs the
 // framework's own `generate` and returns `{ok, output, path?}`.
-async function scaffold(type: string): Promise<void> {
-  const name = prompt(`Name for the new ${type}:`);
-  if (!name) return;
+// The scaffold kinds are loaded from `/scaffold` (data-driven from the
+// framework's GENERATORS registry), so every generator appears in the dropdown
+// and a new one needs no dashboard change. The UI is: choose a kind -> a name
+// input shows when the kind needs one -> Generate.
+interface ScaffoldKind { kind: string; label: string; needs_name: boolean; summary?: string; usage?: string; }
+let scaffoldKinds: ScaffoldKind[] = [];
 
-  const output = document.getElementById("scaffold-output");
-  if (output) { output.style.display = "block"; output.textContent = `Generating ${type} "${name}"...`; }
-
+async function populateScaffoldKinds(): Promise<void> {
+  const sel = document.getElementById("scaffold-kind") as HTMLSelectElement | null;
+  if (!sel) return;
   try {
-    const data = await api<any>("/scaffold/run", "POST", { kind: type, name });
+    const data = await api<any>("/scaffold");
+    scaffoldKinds = Array.isArray(data?.kinds) ? data.kinds : [];
+  } catch { scaffoldKinds = []; }
+  sel.innerHTML = scaffoldKinds
+    .map((k) => `<option value="${esc(k.kind)}">${esc(k.label)}</option>`)
+    .join("");
+  scaffoldKindChange();
+}
+
+function scaffoldKindChange(): void {
+  const sel = document.getElementById("scaffold-kind") as HTMLSelectElement | null;
+  const nameInput = document.getElementById("scaffold-name") as HTMLInputElement | null;
+  const hint = document.getElementById("scaffold-hint");
+  if (!sel) return;
+  const k = scaffoldKinds.find((x) => x.kind === sel.value);
+  // Hide the name field for generators that take no name (e.g. auth, base).
+  if (nameInput) nameInput.style.display = k && k.needs_name === false ? "none" : "";
+  if (hint) hint.textContent = k ? k.summary || "" : "";
+}
+
+async function scaffoldGenerate(): Promise<void> {
+  const sel = document.getElementById("scaffold-kind") as HTMLSelectElement | null;
+  const nameInput = document.getElementById("scaffold-name") as HTMLInputElement | null;
+  const output = document.getElementById("scaffold-output");
+  if (!sel) return;
+  const kind = sel.value;
+  const k = scaffoldKinds.find((x) => x.kind === kind);
+  const needsName = !k || k.needs_name !== false;
+  const name = (nameInput?.value || "").trim();
+  if (needsName && !name) { nameInput?.focus(); return; }
+
+  if (output) { output.style.display = "block"; output.textContent = `Generating ${kind}${name ? ` "${name}"` : ""}...`; }
+  try {
+    const data = await api<any>("/scaffold/run", "POST", { kind, name });
     const path = data.path || firstPathFromOutput(data.output);
     if (output) {
-      output.innerHTML = `<span style="color:var(--success)">✔</span> ${esc(`Created ${type}: ${name}`)}`;
+      output.innerHTML = `<span style="color:var(--success)">✔</span> ${esc(`Generated ${kind}${name ? ": " + name : ""}`)}`;
       if (data.output) output.innerHTML += `\n<span style="opacity:0.7">${esc(String(data.output).trim())}</span>`;
       if (path) {
         output.innerHTML += `\n<span style="color:var(--info);cursor:pointer;text-decoration:underline" onclick="window.__editorOpenFile('${esc(path)}')">${esc(path)}</span>`;
       }
     }
-    // Refresh file tree so the new file shows without a manual reload.
-    loadFileTree(".");
-    if (path) setTimeout(() => openFile(path), 500);
+    if (nameInput) nameInput.value = "";
+    // Surface the new file(s) into their folders (expand + re-fetch just those
+    // folders) so they show immediately - no full tree refresh.
+    const created = pathsFromOutput(data.output);
+    await revealNewFiles(path ? Array.from(new Set([path, ...created])) : created);
+    if (path) setTimeout(() => openFile(path), 400);
   } catch (e: any) {
     if (output) output.innerHTML = `<span style="color:var(--danger)">✗</span> ${esc(e.message || "Failed")}`;
   }
@@ -1954,8 +2136,10 @@ function firstPathFromOutput(output?: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
-(window as any).__scaffold = scaffold;
+(window as any).__scaffoldGenerate = scaffoldGenerate;
+(window as any).__scaffoldKindChange = scaffoldKindChange;
 (window as any).__scaffoldRun = scaffoldRun;
+(window as any).__editorPreview = editorPreview;
 
 // ── Splitters (resizable panels) ───────────────────────────────
 //
