@@ -21,6 +21,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const src = resolve(__dirname, "../dist/tina4-dev-admin.js");
+const splitSrc = resolve(__dirname, "../src/split-view.html");
 
 // Destinations are the .min.js the frameworks actually load.
 const targets = [
@@ -28,6 +29,12 @@ const targets = [
   "../../tina4-php/src/public/js/tina4-dev-admin.min.js",
   "../../tina4-ruby/lib/tina4/public/js/tina4-dev-admin.min.js",
   "../../tina4-nodejs/packages/core/public/js/tina4-dev-admin.min.js",
+];
+const splitTargets = [
+  "../../tina4-python/tina4_python/public/js/tina4-dev-admin-split.html",
+  "../../tina4-php/src/public/js/tina4-dev-admin-split.html",
+  "../../tina4-ruby/lib/tina4/public/js/tina4-dev-admin-split.html",
+  "../../tina4-nodejs/packages/core/public/js/tina4-dev-admin-split.html",
 ];
 
 if (!existsSync(src)) {
@@ -48,3 +55,22 @@ for (const target of targets) {
 }
 
 console.log(`\n${ok}/${targets.length} frameworks updated.`);
+
+if (!existsSync(splitSrc)) {
+  console.error("Split view source missing: src/split-view.html");
+  process.exit(1);
+}
+
+let splitOk = 0;
+for (const target of splitTargets) {
+  const dest = resolve(__dirname, target);
+  try {
+    copyFileSync(splitSrc, dest);
+    console.log(`Deployed split view → ${target}`);
+    splitOk++;
+  } catch (e) {
+    console.warn(`Skip split view ${target}: ${e.message}`);
+  }
+}
+
+console.log(`${splitOk}/${splitTargets.length} split views updated.`);

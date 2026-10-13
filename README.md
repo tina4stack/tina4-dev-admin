@@ -24,19 +24,25 @@ All tabs are backed by endpoints that respond the same way across Python, PHP, R
 
 ## Build & dev
 
+This repository is the source of truth for Dev Admin UX. The dashboard SPA lives
+in `src/`; `src/split-view.html` is the split-screen operating mode that embeds
+that same dashboard beside the app preview. Framework repositories contain
+generated runtime assets only.
+
 ```bash
 npm install
-npm run dev        # Vite dev server — test against a running framework on http://localhost:7145/7146/7147/7148
-npm run build      # Produces dist/tina4-dev-admin.js
-npm run deploy     # Fans the built bundle out to all 4 framework repos
+npm run dev             # Vite source view against a running Tina4 backend
+npm run build           # Build the dashboard and feedback widget
+npm run deploy          # Copy generated dashboard + split-mode assets to frameworks
 ```
 
-The `deploy` script copies `dist/tina4-dev-admin.js` into:
+The `deploy` script copies the built dashboard bundle and `src/split-view.html`
+into each framework's public assets:
 
-- `../tina4-python/tina4_python/public/js/tina4-dev-admin.js`
-- `../tina4-php/src/public/js/tina4-dev-admin.js`
-- `../tina4-ruby/lib/tina4/public/js/tina4-dev-admin.js`
-- `../tina4-nodejs/packages/core/public/js/tina4-dev-admin.js`
+- `../tina4-python/tina4_python/public/js/`
+- `../tina4-php/src/public/js/`
+- `../tina4-ruby/lib/tina4/public/js/`
+- `../tina4-nodejs/packages/core/public/js/`
 
 After deploying, commit the updated bundle in each framework repo.
 

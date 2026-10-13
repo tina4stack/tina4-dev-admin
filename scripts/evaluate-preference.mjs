@@ -1,0 +1,11 @@
+import {build} from 'esbuild';
+import {writeFile,rm} from 'node:fs/promises';
+const real=fetch;globalThis.fetch=(u,o)=>real(typeof u==='string'&&u.startsWith('/')?new URL(u,'http://127.0.0.1:7150'):u,o);
+globalThis.TINA4_AI_GATEWAY=process.env.TINA4_GATEWAY||'http://127.0.0.1:11438';
+await build({entryPoints:['src/ai-agent.ts'],outfile:'/tmp/tina4-preference-agent.mjs',bundle:true,platform:'node',format:'esm'});
+const {runAgent,createAgentSession}=await import('/tmp/tina4-preference-agent.mjs');
+const session=createAgentSession();session.activePage={name:'eval_repair_1345_2',files:['src/templates/pages/eval_repair_1345_2.twig','src/scss/eval_repair_1345_2.scss']};
+const writes=[];
+const result=await runAgent({session,model:process.env.TINA4_MODEL||'mlx-community/gemma-4-e4b-it-4bit',task:'Can we get better colors?',authorizeTool:async(tool)=>{writes.push(tool.name);return false;},signal:AbortSignal.timeout(120000)});
+const passed=result.stopped==='clarification'&&writes.length===0;
+console.log(JSON.stringify({passed,result,writes}));await writeFile(process.env.TINA4_REPORT||'/tmp/tina4-preference-result.json',JSON.stringify({passed,result,writes},null,2));await rm('/tmp/tina4-preference-agent.mjs');if(!passed)process.exitCode=1;

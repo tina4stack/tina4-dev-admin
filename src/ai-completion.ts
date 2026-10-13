@@ -1,3 +1,5 @@
+import {groundCompletionImages} from "./ai-image-placeholders";
+import {loadTina4Css,tina4CssGuidance} from "./ai-tina4-css";
 /**
  * In-editor AI completion — ghost text as you type.
  *
@@ -5,15 +7,9 @@
  * extending from the cursor. Tab accepts the whole thing, Esc (or
  * any typing) dismisses.
  *
- * Under the hood: FIM (fill-in-the-middle) against qwen2.5-coder:14b
- * via the /ai proxy. The prompt uses qwen's special tokens —
- *
- *   <|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>
- *
- * which gives us inline completion at the cursor, not just EOF
- * generation. Prefix = the last ~40 lines before the cursor, suffix
- * = the next ~20 lines. That window is enough signal for single-
- * function completions without blowing the 45K YaRN context budget.
+ * The local chat model receives the full file before and after the cursor.
+ * Nearby comments and docstrings describe the insertion's contract. A complete
+ * response is validated before ghost text becomes available for Tab acceptance.
  *
  * Plan-awareness: when a supervisor plan step is active, its intent
  * is prepended to the query context so the completion lands on the
@@ -28,6 +24,9 @@
 import { EditorView, ViewPlugin, ViewUpdate, Decoration, DecorationSet, WidgetType, keymap } from "@codemirror/view";
 import { EditorState, StateField, StateEffect, Prec } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
+import { streamChat } from "./ai-gateway";
+import { selectionMessages, selectionProblem } from "./ai-selection";
+import { trimSuffixOverlap, completionCode, repeatsExistingCode, selectionCompletion } from "./ai-completion-output";
 
 // ── Ghost state (what the user currently sees) ─────────────────
 
@@ -38,12 +37,15 @@ import type { Extension } from "@codemirror/state";
  */
 interface GhostState {
   from: number;
+  to: number;
   /** Accumulated completion tokens. Streaming appends to this. */
   text: string;
   /** The request id this ghost was issued from. Lets late responses
    *  abort themselves if a newer trigger has fired. */
   requestId: number;
 }
+
+export const requestCompletion = StateEffect.define<void>();
 
 const setGhost = StateEffect.define<GhostState | null>();
 
@@ -64,16 +66,16 @@ const ghostField = StateField.define<GhostState | null>({
 // ── Decoration that renders the ghost inline ───────────────────
 
 class GhostWidget extends WidgetType {
-  constructor(readonly text: string) { super(); }
+  constructor(readonly text: string, readonly replacement = false) { super(); }
   toDOM(): HTMLElement {
     const span = document.createElement("span");
     span.className = "cm-ghost-completion";
     // Preserve leading whitespace so indented suggestions render
     // correctly. The CSS sets white-space: pre-wrap.
-    span.textContent = this.text;
+    span.textContent = this.replacement ? `\nReplace selection · Tab to apply · Esc to dismiss\n${this.text}` : this.text;
     return span;
   }
-  eq(other: GhostWidget): boolean { return other.text === this.text; }
+  eq(other: GhostWidget): boolean { return other.text === this.text && other.replacement === this.replacement; }
   // Widgets usually want to be "invisible" to cursor motion. Ghost
   // text is a hint; pointer events go to the real doc.
   ignoreEvent(): boolean { return true; }
@@ -85,13 +87,13 @@ function ghostDecorations(state: EditorState): DecorationSet {
   // Only show if the cursor is still at the suggestion's anchor — a
   // click elsewhere should make the hint disappear until the next
   // trigger.
-  const { from } = state.selection.main;
-  if (from !== ghost.from) return Decoration.none;
+  const { from, to } = state.selection.main;
+  if (from !== ghost.from || to !== ghost.to) return Decoration.none;
   const deco = Decoration.widget({
-    widget: new GhostWidget(ghost.text),
+    widget: new GhostWidget(ghost.text, ghost.to > ghost.from),
     side: 1, // widget sits AFTER the cursor, not before
   });
-  return Decoration.set([deco.range(ghost.from)]);
+  return Decoration.set([deco.range(ghost.to)]);
 }
 
 const ghostDecoPlugin = ViewPlugin.fromClass(
@@ -108,13 +110,23 @@ const ghostDecoPlugin = ViewPlugin.fromClass(
 function acceptGhost(view: EditorView): boolean {
   const ghost = view.state.field(ghostField);
   if (!ghost || !ghost.text) return false;
+  const selection = view.state.selection.main;
+  if (selection.from !== ghost.from || selection.to !== ghost.to) return false;
+  // Recheck at insertion time too: display filtering alone must not be the
+  // only boundary between a model response and source code.
+  if (completionCode(ghost.text) !== ghost.text.replace(/\s+$/g, "") || repeatsExistingCode(
+    ghost.text, view.state.doc.sliceString(0, ghost.from), view.state.doc.sliceString(ghost.to),
+  )) {
+    view.dispatch({ effects: setGhost.of(null) });
+    return true;
+  }
   // Insert the ghost text at its anchor and clear the ghost. One
   // transaction so undo rolls it back in one step. Cursor lands at
   // the end of the inserted text — the natural "now keep typing"
   // position.
   const to = ghost.from + ghost.text.length;
   view.dispatch({
-    changes: { from: ghost.from, insert: ghost.text },
+    changes: { from: ghost.from, to: ghost.to, insert: ghost.text },
     selection: { anchor: to },
     effects: setGhost.of(null),
     userEvent: "input.complete",
@@ -157,6 +169,7 @@ export interface CompletionOpts {
   /** Whether to enable completions at all. Tied to the status strip
    *  toggle so the user can turn ghost text off globally. */
   enabled: () => boolean;
+  onStatus?: (message: string) => void;
 }
 
 /** Debounce window between the last keystroke and firing a FIM
@@ -164,12 +177,6 @@ export interface CompletionOpts {
  *  seven requests, short enough that stopping to think surfaces a
  *  suggestion quickly. */
 const DEBOUNCE_MS = 250;
-
-/** Context window — how much surrounding code to send. Prefix is
- *  more important than suffix (the model completes from context
- *  *before* the cursor), hence the asymmetric split. */
-const PREFIX_LINES = 40;
-const SUFFIX_LINES = 20;
 
 /** Minimum completion length to show. Below this threshold the
  *  suggestion is often just a closing brace or trailing space — not
@@ -196,6 +203,11 @@ function triggerPlugin(opts: CompletionOpts) {
       constructor(public view: EditorView) {}
 
       update(u: ViewUpdate) {
+        if (u.transactions.some(tr => tr.effects.some(effect => effect.is(requestCompletion)))) {
+          this.cancel();
+          this.state.timer = window.setTimeout(() => this.fire(true), 0);
+          return;
+        }
         if (!opts.enabled()) return;
 
         // Any doc change or selection change resets the timer. If a
@@ -203,6 +215,11 @@ function triggerPlugin(opts: CompletionOpts) {
         // after the user has kept typing are noise.
         if (u.docChanged || u.selectionSet) {
           this.cancel();
+          // Applying a completion is not a request for another completion.
+          if (u.transactions.some(tr => tr.isUserEvent("input.complete"))) {
+            opts.onStatus?.("Completion applied");
+            return;
+          }
           this.schedule();
         }
       }
@@ -213,6 +230,7 @@ function triggerPlugin(opts: CompletionOpts) {
       }
 
       cancel() {
+        this.state.nextRequestId++;
         if (this.state.timer != null) {
           window.clearTimeout(this.state.timer);
           this.state.timer = null;
@@ -223,23 +241,22 @@ function triggerPlugin(opts: CompletionOpts) {
         }
       }
 
-      async fire() {
+      async fire(manual = false) {
         this.state.timer = null;
-        if (!opts.enabled()) return;
+        if (!manual && !opts.enabled()) return;
 
         const view = this.view;
         const state = view.state;
         const sel = state.selection.main;
-        // Only trigger on a collapsed selection — selections are a
-        // signal the user is navigating, not writing.
-        if (!sel.empty) return;
+        // One selection is a replacement target; multiple cursors are ambiguous.
+        if (state.selection.ranges.length !== 1) return;
 
         // Skip mid-word: if the character to the left is a word
         // character, the user is in the middle of typing an identifier
         // and we'd just spam completions per keystroke. The existing
         // autocomplete popup handles that case.
         const pos = sel.from;
-        if (pos > 0) {
+        if (!manual && sel.empty && pos > 0) {
           const char = state.doc.sliceString(pos - 1, pos);
           if (/\w/.test(char) === false) {
             // OK — non-word char or cursor at line start.
@@ -252,17 +269,16 @@ function triggerPlugin(opts: CompletionOpts) {
           }
         }
 
-        // Build the FIM prompt context.
+        // Include the entire file on both sides of the insertion point.
+        // A narrow window hides imports and declarations elsewhere in the file.
         const doc = state.doc;
-        const line = doc.lineAt(pos);
-        const prefixStart = doc.line(Math.max(1, line.number - PREFIX_LINES)).from;
-        const suffixEnd = doc.line(Math.min(doc.lines, line.number + SUFFIX_LINES)).to;
-        const prefix = doc.sliceString(prefixStart, pos);
-        const suffix = doc.sliceString(pos, suffixEnd);
+        const prefix = doc.sliceString(0, pos);
+        const suffix = doc.sliceString(sel.to);
+        const selected = doc.sliceString(sel.from, sel.to);
 
         // Nothing to complete if both sides are empty. Guards against
         // completing on a blank buffer where FIM drifts into lore.
-        if (!prefix.trim() && !suffix.trim()) return;
+        if (!prefix.trim() && !suffix.trim() && !selected.trim()) return;
 
         const requestId = ++this.state.nextRequestId;
         this.state.abort = new AbortController();
@@ -273,16 +289,24 @@ function triggerPlugin(opts: CompletionOpts) {
         view.dispatch({ effects: setGhost.of(null) });
 
         let accumulated = "";
+        const abort = this.state.abort;
         try {
+          let feedback = "";
+          for (let attempt=0; attempt<3; attempt++) {
+          accumulated = "";
+          opts.onStatus?.(attempt ? "Autocomplete: retrying invalid response…" : selected ? "Autocomplete: thinking about selected section…" : "Autocomplete: thinking…");
           await streamFim(
             {
               prefix,
               suffix,
+              selected,
               language: opts.language(),
               path: opts.path(),
               planIntent: opts.planIntent(),
+              feedback,
+              manual,
             },
-            this.state.abort.signal,
+            abort.signal,
             (token) => {
               // If a newer request has started, drop late tokens on
               // the floor. The request was aborted but fetch may
@@ -290,26 +314,38 @@ function triggerPlugin(opts: CompletionOpts) {
               if (requestId !== this.state.nextRequestId) return;
               accumulated += token;
 
-              // Trim at the first structural boundary so we don't
-              // bleed into the next function / block. Cheap heuristic:
-              // stop at the first blank line that appears after at
-              // least one non-blank line of output.
-              const bounded = boundCompletion(accumulated);
-
-              if (bounded.length < MIN_SHOW_CHARS) return;
-              view.dispatch({
-                effects: setGhost.of({ from: pos, text: bounded, requestId }),
-              });
             },
           );
+          // Validate the complete envelope before showing an insertable hint.
+          // Streaming fragments can be partial fences or explanations.
+          if (requestId !== this.state.nextRequestId || (!manual && !opts.enabled())) return;
+          let code = completionCode(accumulated);
+          if(/html|twig/i.test(opts.language()))code=await groundCompletionImages(code,async src=>{
+            // Check same-origin assets only; do not fetch invented external URLs.
+            try {const url=new URL(src,location.href);if(url.origin!==location.origin)return false;
+              const response=await fetch(url.href,{method:'HEAD',signal:abort.signal});return response.ok && (response.headers.get('content-type')||'').startsWith('image/');
+            }catch(error){if(abort.signal.aborted)throw error;return false;}
+          });
+          if(requestId!==this.state.nextRequestId)return;
+          const bounded = selected ? selectionCompletion(code, prefix, selected, opts.language()) : trimSuffixOverlap(manual && /html|twig/i.test(opts.language()) ? code.trimEnd() : boundCompletion(code), suffix);
+          feedback = selected ? selectionProblem(bounded, {prefix, suffix, selected, language: opts.language(), path: opts.path()}) : "";
+          if (!feedback && bounded.length >= MIN_SHOW_CHARS && bounded.trim() !== selected.trim() && !repeatsExistingCode(bounded, prefix, suffix)) {
+            view.dispatch({ effects: setGhost.of({ from: pos, to: sel.to, text: bounded, requestId }) });
+            opts.onStatus?.(selected ? "Replacement ready · Tab to apply · Esc to dismiss" : "Completion ready · Tab to accept");
+            return;
+          }
+          feedback ||= "Output duplicated existing code or did not change the selection";
+          }
+          opts.onStatus?.("No usable completion returned · refine the selected comments and retry");
         } catch (e: any) {
           if (e?.name === "AbortError") return;
           // Network / server errors are common when the LLM host is
           // down; silent-fail is the right UX. Toasting a red chip
           // every time would train users to disable completion.
+          opts.onStatus?.("Autocomplete failed · check the local model");
           console.warn("[completion]", e);
         } finally {
-          this.state.abort = null;
+          if (this.state.abort === abort) this.state.abort = null;
         }
       }
 
@@ -343,39 +379,55 @@ function boundCompletion(raw: string): string {
 interface FimCtx {
   prefix: string;
   suffix: string;
+  selected: string;
   language: string;
   path: string | null;
   planIntent: string | null;
+  feedback?: string;
+  manual?: boolean;
 }
 
-/** Stream qwen2.5-coder FIM via the /ai proxy.
- *
- *  Wire-format note: the backing Ollama instance on :11437 exposes
- *  `/api/chat` but not `/api/generate` (the raw-completion endpoint),
- *  so we wrap FIM in a chat turn. The system message tells qwen to
- *  emit only the middle-text; the user message contains the FIM
- *  token sequence. qwen2.5-coder understands the tokens even inside
- *  a chat wrapper — same tokens it was trained on — and replies with
- *  just the completion text.
- *
- *  Throws on network / HTTP errors. Callers swallow AbortError. */
+/** Request a cursor insertion through the local Tina4 chat gateway.
+ * Throws on network / HTTP errors. Callers swallow AbortError. */
 async function streamFim(
   ctx: FimCtx,
   signal: AbortSignal,
   onToken: (token: string) => void,
 ): Promise<void> {
-  const fimPrompt =
-    `<|fim_prefix|>${ctx.prefix}<|fim_suffix|>${ctx.suffix}<|fim_middle|>`;
+  const fimPrompt = ctx.selected ?
+    `Implement the selected ${ctx.language} code section using its comments. Replace only the selected section. Return actual source code, never a description or placeholder. Preserve indentation.
+File before selection:
+${ctx.prefix}
+Selected code to implement:
+${ctx.selected}
+File after selection:
+${ctx.suffix}
+Return only raw replacement source code, without Markdown fences.` :
+    `Complete the missing code at the cursor in ${ctx.path || "this file"} (${ctx.language}).
+Read the nearby comments and docstrings, including AI-FILL, Intent, Use and Return. Implement that contract. Existing imports and definitions are already present. Return ONLY the code to insert, not the whole file. Do not repeat the prefix or suffix. No explanations.
+BEFORE CURSOR:
+${ctx.prefix}
+${ctx.selected ? `SELECTED SECTION TO REPLACE:\n${ctx.selected}\nReplace this entire selected section with its implementation. Use the selected comments as requirements. Remove placeholder raises/pass statements in the replacement. Preserve indentation. Code before and after the selection must remain unchanged.` : "CURSOR"}
+AFTER CURSOR:
+${ctx.suffix}
+${ctx.feedback ? `Previous response rejected: ${ctx.feedback}. Correct this.\n` : ""}
+Return just the raw missing insertion, without Markdown fences.`;
 
+  const framework = /html|twig/i.test(ctx.language) ? await loadTina4Css() : null;
+  const markupGuidance = /html|twig/i.test(ctx.language) ? "For an explicit HTML suggestion, complete the intended semantic section with useful context-aware copy and a cohesive layout using existing classes. Include accessible image placeholders when appropriate: use an existing local asset if available, otherwise an inline SVG placeholder with an accessible label, never an invented URL. Produce balanced markup and respect existing surrounding tags. Do not expand a small inline edit into a whole page. Output raw code only, no fences or commentary. Do not repeat the selected instruction comment. For SVG use xmlns=\"http://www.w3.org/2000/svg\", role=\"img\" and an accessible title. Use simple rect placeholders rather than complex invented paths. Never use Tailwind classes unless the supplied installed catalog includes them. " + (framework ? tina4CssGuidance(framework) : "Reuse classes already present in the document.") : "";
   // System prompt: keeps qwen focused on "only emit the middle text."
   // Without this the chat wrapper sometimes pulls in prose
   // explanations. Plan intent is appended here so it influences the
   // completion without polluting the FIM tokens themselves.
   const systemBits: string[] = [
     "You are a code completion engine.",
-    "You receive FIM tokens (<|fim_prefix|>…<|fim_suffix|>…<|fim_middle|>).",
+    ...(ctx.manual || ctx.selected ? [markupGuidance] : []),
+    "You receive the complete file split into BEFORE CURSOR and AFTER CURSOR.",
     "Output ONLY the missing middle text that goes at the cursor.",
+    "Read nearby comments and docstrings on both sides of the cursor, especially AI-FILL, Intent, Given, Use, Return and Ground annotations. They describe the implementation contract. Use the named framework APIs and return shape; do not repeat comments or imports. Do not invent imports or model definitions that are absent from the file. Only propose code that fits at this cursor without leaving conflicting placeholder statements.",
     "No explanation, no markdown fences, no restating the prefix or suffix.",
+    "The prefix and suffix together contain the ENTIRE current file. Insert only missing code at their boundary; do not restart the file or repeat existing imports, declarations or markup. If nothing is missing, return an empty response.",
+    `File: ${ctx.path || "untitled"}.`,
     `Language: ${ctx.language || "unknown"}.`,
   ];
   if (ctx.planIntent) {
@@ -383,61 +435,26 @@ async function streamFim(
     systemBits.push("Match the plan step's intent when relevant.");
   }
 
-  const body = {
-    model: "qwen2.5-coder:14b",
-    messages: [
-      { role: "system", content: systemBits.join(" ") },
-      { role: "user", content: fimPrompt },
-    ],
-    stream: true,
-    options: {
-      // Most inline suggestions are 1–8 lines — 200 tokens is plenty
-      // without letting the model ramble into full function bodies.
-      num_predict: 200,
-      temperature: 0.15,
-      stop: ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|endoftext|>"],
+  // Stream through the single gateway client — the model never gets a path
+  // straight to it. FIM wants the raw middle text, so thinking is off.
+  await streamChat(
+    {
+      model: "mlx-community/gemma-4-e4b-it-4bit",
+      think: false,
+      messages: ctx.selected ? selectionMessages(ctx, ctx.feedback + (markupGuidance ? `\n${markupGuidance}` : "")) : [
+        { role: "system", content: systemBits.join(" ") },
+        { role: "user", content: fimPrompt },
+      ],
+      options: {
+        // Most inline suggestions are 1–8 lines — 200 tokens is plenty
+        // without letting the model ramble into full function bodies.
+        num_predict: /html|twig/i.test(ctx.language) && (ctx.manual || ctx.selected) ? 1800 : ctx.selected ? 600 : 200,
+        temperature: 0.15,
+        stop: ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|endoftext|>"],
+      },
     },
-  };
-
-  const r = await fetch("/ai/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!r.ok || !r.body) {
-    throw new Error(`fim ${r.status}`);
-  }
-
-  // Ollama /api/chat streams NDJSON: one {message: {content: "..."}, done: bool} per line.
-  const reader = r.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let nl = buffer.indexOf("\n");
-      while (nl >= 0) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (line) {
-          try {
-            const obj = JSON.parse(line);
-            const tok = obj?.message?.content ?? obj?.response ?? "";
-            if (tok) onToken(tok);
-            if (obj?.done) return;
-          } catch {
-            /* keepalive / malformed line */
-          }
-        }
-        nl = buffer.indexOf("\n");
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+    { onContent: onToken, signal },
+  );
 }
 
 // ── Theme ────────────────────────────────────────────────────

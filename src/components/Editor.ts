@@ -1,6 +1,13 @@
+import { PreviewBrowser } from "../preview-browser";
+import { capturePreview } from "../preview-capture";
+import { mountMarkdownEditor, renderChatMarkdown } from "../markdown-editor";
 import { api, esc } from "../api.js";
 import { callMcpTool } from "../mcp.js";
-import { ghostCompletion } from "../ai-completion.js";
+import { codeMenu, previewRoutes } from "../editor-code-menu";
+import { ghostCompletion, requestCompletion } from "../ai-completion.js";
+import { runAgent, createAgentSession } from "../ai-agent.js";
+import type { McpTool } from "../mcp.js";
+import { gatewayHint, GatewayError } from "../ai-gateway.js";
 // The agent chat (Rust supervisor: chat / execute / threads / sessions /
 // thoughts) was removed from the dev-admin in 3.13.132. The right pane now
 // hosts only the framework-grounding + plans panels; the code editor + inline
@@ -55,6 +62,15 @@ let activeDir: string | null = null;  // Most recently clicked folder — highli
 let expandedDirs: Set<string> = new Set([".", "src", "src/routes", "src/orm", "src/templates"]);
 let container: HTMLElement | null = null;
 let fileTreeCache: Map<string, any[]> = new Map();
+let assistantImages: string[] = [];
+let assistantBusy = false;
+let assistantSession = createAgentSession();
+try {
+  const saved = JSON.parse(sessionStorage.getItem("tina4-assistant-session") || "null");
+  if (saved && Array.isArray(saved.conversation) && Array.isArray(saved.changedFiles)) {
+    assistantSession = { ...assistantSession, ...saved };
+  }
+} catch { /* Storage may be unavailable or contain an older session format. */ }
 
 // ── Twig decoration overlay ──
 //
@@ -167,7 +183,10 @@ export function renderEditor(el: HTMLElement): void {
                 <div class="editor-menu-item" onclick="window.__switchTab('system')">⚙️ System</div>
               </div>
             </div>
-            <span class="text-sm" style="font-weight:600">Files</span>
+            <div class="editor-side-modes">
+              <button class="editor-mode active" id="editor-mode-assistant" onclick="window.__editorSideMode('assistant')">Assistant</button>
+              <button class="editor-mode" id="editor-mode-files" onclick="window.__editorSideMode('files')">Files</button>
+            </div>
           </div>
           <div style="display:flex;gap:4px;align-items:center">
             <span id="editor-branch" class="text-sm text-muted"></span>
@@ -175,7 +194,22 @@ export function renderEditor(el: HTMLElement): void {
           </div>
         </div>
         <div id="editor-file-tree" class="editor-file-tree"></div>
-        <div class="editor-scaffold-bar">
+        <div id="editor-assistant" class="editor-assistant" hidden>
+          <div class="assistant-messages" id="assistant-messages">
+            <div class="assistant-welcome">Ask about this Tina4 project. The open file is included as context.</div>
+          </div>
+          <div class="assistant-composer-wrap">
+            <div id="assistant-status" class="assistant-status" role="status" aria-live="polite"></div>
+            <div id="assistant-image-list" class="assistant-image-list"></div>
+            <textarea id="assistant-prompt" rows="3" placeholder="Give me something to do" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.__assistantSend()}"></textarea>
+            <div class="assistant-composer-actions">
+              <label class="assistant-attach" title="Attach an image">＋ Image<input id="assistant-image-input" type="file" accept="image/*" multiple hidden></label>
+              <button class="btn btn-sm" id="assistant-reset" onclick="window.__assistantReset()" title="Clear conversation and start fresh">New chat</button>
+              <button class="btn btn-sm" id="assistant-send" onclick="window.__assistantSend()">Send</button>
+            </div>
+          </div>
+        </div>
+        <div class="editor-scaffold-bar" id="editor-scaffold-bar">
           <div class="scaffold-label">Scaffold</div>
           <div class="scaffold-form">
             <select id="scaffold-kind" class="scaffold-select" onchange="window.__scaffoldKindChange()" title="What to scaffold"></select>
@@ -211,6 +245,8 @@ export function renderEditor(el: HTMLElement): void {
 
   // Add editor-specific styles
   addEditorStyles();
+  setupAssistantComposer();
+  setEditorSideMode("assistant");
 
   // Wire up the draggable column splitters (sidebar + right panel).
   setupSplitters();
@@ -682,6 +718,10 @@ function previewUrlFor(path: string): string | null {
 function editorPreview(path: string): void {
   const url = previewUrlFor(path);
   if (!url) return;
+  previewRouteUrl(url);
+}
+
+function previewRouteUrl(url: string): void {
   try {
     if (window.parent !== window) {
       const pv = window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
@@ -905,7 +945,11 @@ function renderTabs(): void {
 }
 
 // ── Render content (CodeMirror or markdown preview) ──
+let destroyMarkdownEditor: (() => void) | undefined;
+
 function renderContent(): void {
+  destroyMarkdownEditor?.();
+  destroyMarkdownEditor = undefined;
   const contentEl = document.getElementById("editor-content");
   if (!contentEl) return;
 
@@ -919,6 +963,7 @@ function renderContent(): void {
   }
 
   contentEl.innerHTML = "";
+  window.parent.postMessage({type:"tina4:document-mode", active:file.language === "markdown"}, location.origin);
 
   const ext = file.path.split(".").pop()?.toLowerCase() || "";
   const isRasterImage = ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp"].includes(ext);
@@ -950,14 +995,10 @@ function renderContent(): void {
     mountCodeMirror(file, document.getElementById("editor-cm-pane")!);
     renderSvgPreview(file.content);
   } else if (file.language === "markdown") {
-    // Split view: editor left, preview right
-    contentEl.innerHTML = `<div style="display:flex;flex:1;min-height:0;overflow:hidden">
-      <div id="editor-cm-pane" style="flex:1;overflow:auto;min-width:0"></div>
-      <div style="width:1px;background:var(--border)"></div>
-      <div id="editor-md-preview" class="editor-md-preview" style="flex:1;overflow:auto;padding:1rem"></div>
-    </div>`;
-    mountCodeMirror(file, document.getElementById("editor-cm-pane")!);
-    renderMarkdownPreview(file.content);
+    file.view?.destroy(); file.view = undefined;
+    destroyMarkdownEditor = mountMarkdownEditor(contentEl, file.content, value => {
+      if (file.content !== value) { file.content=value; file.dirty=true; renderTabs(); }
+    }, () => { void saveCurrentFile(); });
   } else {
     contentEl.innerHTML = `<div id="editor-cm-pane" style="flex:1;overflow:auto"></div>`;
     mountCodeMirror(file, document.getElementById("editor-cm-pane")!);
@@ -1033,7 +1074,9 @@ function mountCodeMirror(file: OpenFile, parent: HTMLElement): void {
         path: () => file.path,
         planIntent: () => activeCompletionPlanIntent,
         enabled: () => completionEnabled,
+        onStatus: (message) => { if (activeFile === file.path) updateStatusBar(message); },
       }),
+      codeMenu(view => view.dispatch({effects: requestCompletion.of()}), previewRouteUrl),
       saveKeymap,
       // Enter → insertNewlineAndIndent consults the language's indent
       // service, so `def foo():` followed by Enter lands inside the
@@ -1284,8 +1327,41 @@ function getEditorCSS(): string {
     .editor-layout { display: flex; position: absolute; inset: 0; overflow: hidden; }
 
     .editor-sidebar { width: 240px; flex-shrink: 0; background: var(--bg, #181825); border-right: 1px solid var(--border, #313244); display: flex; flex-direction: column; overflow: hidden; }
+    .editor-sidebar [hidden] { display: none !important; }
     .editor-sidebar-header { padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border, #313244); flex-shrink: 0; }
+    .editor-side-modes { display: flex; gap: 3px; }
+    .editor-mode { background: transparent; color: var(--muted, #a6adc8); border: 1px solid transparent; border-radius: 4px; padding: 3px 7px; font-size: 0.72rem; cursor: pointer; }
+    .editor-mode.active { background: var(--surface, #313244); color: var(--text, #cdd6f4); border-color: var(--border, #45475a); }
     .editor-file-tree { flex: 1; overflow-y: auto; padding: 0.25rem 0; font-size: 0.8rem; }
+    .editor-assistant { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .assistant-messages { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 9px; }
+    .assistant-welcome { color: var(--muted, #a6adc8); font-size: 0.78rem; line-height: 1.5; padding: 8px; }
+    .assistant-message { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.78rem; line-height: 1.5; padding: 8px 9px; border-radius: 8px; }
+    .assistant-message-user { background: var(--surface, #313244); align-self: flex-end; max-width: 94%; }
+    .assistant-message-assistant { background: var(--bg-alt, #20202f); align-self: stretch; border: 1px solid var(--border, #313244); }
+    .assistant-thinking { color: var(--muted, #a6adc8); font-size: 0.72rem; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border, #313244); }
+    .assistant-thinking-content { white-space: normal; min-width: 0; }
+    .assistant-thinking-content .toastui-editor-contents { font-size: 0.75rem; line-height: 1.6; color: var(--muted, #a6adc8); }
+    .assistant-thinking-content .toastui-editor-contents pre { overflow-x: auto; white-space: pre; padding: 10px; border-radius: 6px; }
+    .assistant-thinking-content .toastui-editor-contents pre code { overflow-wrap: normal; white-space: pre; }
+    .assistant-thinking-content .toastui-editor-contents h1, .assistant-thinking-content .toastui-editor-contents h2, .assistant-thinking-content .toastui-editor-contents h3 { font-size: 0.85rem; margin-top: 14px; }
+    .assistant-thinking-label { font-weight: 600; cursor: pointer; }
+    .assistant-thinking[open] > .assistant-thinking-label { margin-bottom: 6px; }
+    .assistant-composer-wrap { border-top: 1px solid var(--border, #313244); padding: 8px; display: flex; flex-direction: column; gap: 6px; transition: background 120ms ease, border-color 120ms ease; }
+    .assistant-composer-wrap.assistant-drop-active { background: rgba(137, 180, 250, 0.12); border-color: var(--info, #89b4fa); }
+    .assistant-composer-wrap textarea { width: 100%; resize: vertical; min-height: 58px; max-height: 160px; background: var(--surface, #313244); border: 1px solid var(--border, #45475a); color: var(--text, #cdd6f4); border-radius: 6px; padding: 7px; font: inherit; font-size: 0.78rem; }
+    .assistant-composer-actions { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; color: var(--muted, #a6adc8); }
+    .assistant-composer-actions #assistant-send { margin-left: auto; }
+    .assistant-attach { cursor: pointer; }
+    .assistant-status { min-height: 20px; color: var(--muted, #a6adc8); font-size: 0.8rem; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .assistant-status[data-state="active"] { color: #a5b4fc; }
+    .assistant-status[data-state="active"]::before { content: ""; width: 12px; height: 12px; flex-shrink: 0; border: 2px solid #475569; border-top-color: #a5b4fc; border-radius: 50%; animation: assistant-spin 0.8s linear infinite; }
+    .assistant-status[data-state="waiting"] { color: #facc15; }
+    .assistant-status[data-state="error"] { color: #fca5a5; }
+    @keyframes assistant-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .assistant-status[data-state="active"]::before { animation: none; } }
+    .assistant-image-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .assistant-image-chip { background: var(--surface, #313244); border-radius: 10px; padding: 2px 7px; font-size: 0.65rem; color: var(--text, #cdd6f4); }
 
     .tree-item { padding: 3px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
     .tree-item:hover { background: rgba(255,255,255,0.05); }
@@ -1475,6 +1551,329 @@ function toggleAI(): void {
   const panel = document.getElementById("editor-right-panel");
   if (panel) panel.classList.toggle("collapsed", aiPanelCollapsed);
 }
+
+function setEditorSideMode(mode: "files" | "assistant"): void {
+  const assistant = mode === "assistant";
+  document.getElementById("editor-file-tree")?.toggleAttribute("hidden", assistant);
+  document.getElementById("editor-assistant")?.toggleAttribute("hidden", !assistant);
+  document.getElementById("editor-mode-files")?.classList.toggle("active", !assistant);
+  document.getElementById("editor-mode-assistant")?.classList.toggle("active", assistant);
+  if (assistant) document.getElementById("assistant-prompt")?.focus();
+}
+
+function setupAssistantComposer(): void {
+  const input = document.getElementById("assistant-image-input") as HTMLInputElement | null;
+  input?.addEventListener("change", () => {
+    for (const file of Array.from(input.files || [])) addAssistantImage(file);
+    input.value = "";
+  });
+  const prompt = document.getElementById("assistant-prompt");
+  const composer = document.querySelector(".assistant-composer-wrap");
+  composer?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    composer.classList.add("assistant-drop-active");
+  });
+  composer?.addEventListener("dragleave", (event) => {
+    if (!composer.contains((event as DragEvent).relatedTarget as Node | null)) composer.classList.remove("assistant-drop-active");
+  });
+  composer?.addEventListener("drop", (event) => {
+    event.preventDefault();
+    composer.classList.remove("assistant-drop-active");
+    Array.from((event as DragEvent).dataTransfer?.files || [])
+      .filter((file) => file.type.startsWith("image/"))
+      .forEach(addAssistantImage);
+  });
+  prompt?.addEventListener("paste", (event) => {
+    const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+    if (files.length) {
+      event.preventDefault();
+      files.forEach(addAssistantImage);
+    }
+  });
+}
+
+function addAssistantImage(file: File): void {
+  if (!file.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (typeof reader.result !== "string") return;
+    assistantImages.push(reader.result.split(",", 2)[1] || "");
+    const list = document.getElementById("assistant-image-list");
+    if (list) list.innerHTML = assistantImages.map((_, i) => `<span class="assistant-image-chip">Image ${i + 1}</span>`).join("");
+  };
+  reader.readAsDataURL(file);
+}
+
+function assistantBubble(role: "user" | "assistant", text: string): HTMLElement {
+  const bubble = document.createElement("div");
+  bubble.className = `assistant-message assistant-message-${role}`;
+  bubble.textContent = text;
+  document.getElementById("assistant-messages")?.appendChild(bubble);
+  bubble.parentElement?.scrollTo(0, bubble.parentElement.scrollHeight);
+  return bubble;
+}
+
+async function approveAssistantTool(tool: McpTool, args: Record<string, unknown>): Promise<boolean> {
+  if (assistantSession.planSaved && ["scaffold", "plan_complete_step", "plan_note"].includes(tool.name)) return true;
+  if(tool.name!=="plan_create") return false;
+  const card=assistantBubble("assistant", "");
+  const heading=document.createElement("strong");heading.textContent="Review the plan";
+  const preview=document.createElement("div");
+  preview.style.cssText="max-height:280px;overflow:auto;margin:8px 0";
+  const steps=Array.isArray(args.steps)?args.steps:[];
+  renderChatMarkdown(preview,`# ${args.title}\n\nGoal: ${args.goal||""}\n\n## Steps\n\n${steps.map(step=>`- [ ] ${step}`).join("\n")}`);
+  const apply=document.createElement("button");apply.className="btn btn-sm";apply.textContent="Approve plan & build";
+  const cancel=document.createElement("button");cancel.className="btn btn-sm";cancel.textContent="Cancel";
+  card.append(heading,preview,apply,cancel);card.scrollIntoView({block:"nearest"});
+  return new Promise(resolve=>{
+    cancel.onclick=()=>{apply.disabled=cancel.disabled=true;resolve(false);};
+    apply.onclick=()=>{
+      const details=document.createElement("details"),summary=document.createElement("summary");
+      summary.textContent=`✓ Approved · ${String(args.title||"Plan")}`;
+      details.append(summary,preview);card.replaceChildren(details);resolve(true);
+    };
+  });
+}
+
+async function sendAssistantMessage(): Promise<void> {
+  if (assistantBusy) return;
+  const input = document.getElementById("assistant-prompt") as HTMLTextAreaElement | null;
+  const prompt = input?.value.trim();
+  if (!prompt) return;
+  assistantBusy = true;
+  const resetButton=document.getElementById("assistant-reset") as HTMLButtonElement | null;
+  if(resetButton) resetButton.disabled=true;
+  if (input) input.value = "";
+  const images = assistantImages;
+  assistantImages = [];
+  const imageList = document.getElementById("assistant-image-list");
+  if (imageList) imageList.innerHTML = "";
+  assistantBubble("user", `${prompt}${images.length ? `\n[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""}`);
+  const answerBubble = assistantBubble("assistant", "");
+  const thinkingSection = document.createElement("details");
+  thinkingSection.className = "assistant-thinking";
+  thinkingSection.hidden = true;
+  thinkingSection.open = true;
+  const thinkingLabel = document.createElement("summary");
+  thinkingLabel.className = "assistant-thinking-label";
+  thinkingLabel.textContent = "Thinking";
+  const thinkingText = document.createElement("div");
+  thinkingText.className = "assistant-thinking-content";
+  let thinkingMarkdown = "", thinkingTimer:ReturnType<typeof setTimeout>|undefined;
+  const flushThinking = () => {
+    if(thinkingTimer!==undefined)clearTimeout(thinkingTimer);
+    thinkingTimer=undefined;
+    if(!thinkingMarkdown)return;
+    const messages=answerBubble.parentElement;
+    const following=messages ? messages.scrollHeight-messages.scrollTop-messages.clientHeight<80 : false;
+    renderChatMarkdown(thinkingText,thinkingMarkdown);
+    if(messages&&following)messages.scrollTop=messages.scrollHeight;
+  };
+  thinkingSection.append(thinkingLabel, thinkingText);
+  const answerText = document.createElement("div");
+  answerText.textContent = "Connecting to local model…";
+  answerBubble.append(thinkingSection, answerText);
+  let thinkingStep = 0;
+  const started = performance.now();
+  const status = document.getElementById("assistant-status");
+  const send = document.getElementById("assistant-send") as HTMLButtonElement | null;
+  if (send) { send.disabled = true; send.textContent = "Working…"; }
+  let activity = "Thinking…";
+  let activityState = "active";
+  let finalStatus = "Done";
+  const showActivity = (text: string, state = "active") => {
+    activity = text; activityState = state;
+    if (status) { status.dataset.state = state; status.textContent = `${text} · ${Math.floor((performance.now() - started) / 1000)}s`; }
+  };
+  showActivity("Thinking…");
+  const activityTimer = window.setInterval(() => showActivity(activity, activityState), 1000);
+
+  const file = openFiles.find((candidate) => candidate.path === activeFile);
+  const currentContent = file?.view?.state.doc.toString() ?? file?.content ?? "";
+  const context = file
+    ? `Open file: ${file.path}\nLanguage: ${file.language}\n\n${currentContent.slice(0, 10000)}`
+    : undefined;
+  const changes=new Map<string,{before:string|null;after:string;applied:boolean}>();
+  const pendingChanges=new Map<string,{before:string|null;after:string;applied:boolean}>();
+  let undoButton:HTMLButtonElement|null=null;
+  const showUndo=()=>{
+    if(undoButton) return;
+    const card=assistantBubble("assistant", "Changes applied · ");
+    undoButton=document.createElement("button");
+    undoButton.className="btn btn-sm";undoButton.textContent="Undo changes";undoButton.disabled=true;
+    card.append(undoButton);
+    undoButton.onclick=async()=>{
+      if(assistantBusy) return;
+      undoButton!.disabled=true;
+      const applied=[...changes].filter(([,change])=>change.applied);
+      try {
+        for(const [path,change] of applied) {
+          const current=await callMcpTool("file_read",{path});
+          if(!current.ok || current.result!==change.after || openFiles.some(file=>file.path===path && file.dirty))
+            throw new Error(`${path} changed since this edit. Undo stopped to preserve your newer work.`);
+        }
+        for(const [path,change] of applied.reverse()) {
+          if(change.before===null) {
+            await api("/file/delete","POST",{path,is_dir:false});
+            closeFile(path);
+          } else await api("/file/save","POST",{path,content:change.before});
+          change.applied=false;
+        }
+        assistantSession.verified=false;
+        assistantSession.conversation.push({role:"user",content:"I undid the last assistant file changes. Read the current files before continuing."});
+        sessionStorage.setItem("tina4-assistant-session",JSON.stringify(assistantSession));
+        await resyncOpenFilesFromDisk();
+        try {const frame=window.parent.document.getElementById("t4-preview") as HTMLIFrameElement|null;if(frame) frame.contentWindow?.location.reload();}catch{}
+        card.textContent="Changes undone";
+      } catch(error) {
+        const message=document.createElement("div");message.textContent=String((error as Error).message);card.append(message);
+        undoButton!.disabled=false;
+      }
+    };
+  };
+  try {
+    const result = await runAgent({
+      session: assistantSession,
+      authorizeTool: async (tool, args) => {
+        if(["file_write","file_patch"].includes(tool.name)) {
+          const path=String(args.path||"");
+          if(openFiles.some(file=>file.path===path && file.dirty)) throw new Error(`Save your unsaved edits to ${path} first.`);
+          const read=await callMcpTool("file_read",{path});
+          if(!read.ok || typeof read.result!=="string") throw new Error(`Could not read ${path} before applying changes.`);
+          const before=read.result.startsWith("File not found:") ? null : read.result;
+          const after=tool.name==="file_write" ? String(args.content??"") : (before||"").replace(String(args.old_string||""),String(args.new_string||""));
+          pendingChanges.set(path,{before:changes.has(path) ? changes.get(path)!.before : before,after,applied:false});
+          showActivity(`Applying ${path}…`);
+          return true;
+        }
+        thinkingSection.open = false;
+        thinkingLabel.textContent = tool.name === "plan_create"
+          ? "Thinking complete · Plan ready for review"
+          : "Thinking complete · Next change prepared";
+        showActivity("Waiting for your approval", "waiting");
+        const approved = await approveAssistantTool(tool, args);
+        showActivity("Working…");
+        return approved;
+      },
+      model: "mlx-community/gemma-4-e4b-it-4bit",
+      task: prompt,
+      context,
+      previewRoute: (() => {
+        try {
+          const preview = window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
+          return preview?.contentWindow?.location.pathname;
+        } catch { return undefined; }
+      })(),
+      previewBrowser: (() => {
+        try {
+          const frame=window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
+          return frame ? new PreviewBrowser(()=>{if(!frame.contentDocument)throw new Error('Preview unavailable');return frame.contentDocument;}) : undefined;
+        } catch {return undefined;}
+      })(),
+      capturePreview: (() => {
+        try {
+          const frame=window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
+          return frame ? (route?:string)=>capturePreview(frame,route) : undefined;
+        } catch {return undefined;}
+      })(),
+      images,
+      think: true,
+      onEvent: (event) => {
+        const messages = answerBubble.parentElement;
+        const following = messages ? messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80 : false;
+        if (event.type === "thinking" && event.text) {
+          thinkingSection.hidden = false;
+          if (thinkingStep !== event.step) thinkingSection.open = true;
+          if (thinkingStep && thinkingStep !== event.step) thinkingMarkdown += "\n\n---\n\n";
+          thinkingStep = event.step;
+          thinkingMarkdown += event.text;
+          if(thinkingTimer===undefined)thinkingTimer=setTimeout(flushThinking,100);
+          answerText.textContent = "";
+          showActivity("Thinking…");
+          thinkingLabel.textContent = "Thinking…";
+        }
+        if(event.type==="visual_review") {
+          const details=document.createElement("details"),label=document.createElement("summary");
+          label.textContent=event.text?.startsWith("Preview check passed") ? "Preview check passed" : "Preview findings";
+          const review=document.createElement("div");renderChatMarkdown(review,event.text||"");details.append(label,review);answerBubble.append(details);
+        }
+        if(event.type==="preview" && event.capture) {
+          const details=document.createElement("details");
+          const label=document.createElement("summary");
+          label.textContent=`Preview captured · ${event.capture.route} · ${event.capture.width}×${event.capture.height}`;
+          const image=document.createElement("img");
+          image.src=`data:image/png;base64,${event.capture.image}`;
+          image.alt="Preview sent to the local model";image.style.cssText="max-width:100%;max-height:400px;object-fit:contain";
+          details.append(label,image);answerBubble.append(details);
+        }
+        if (event.type === "phase") {
+          showActivity(event.text || "Working…");
+          answerText.textContent = event.text || "Working…";
+        }
+        if (event.type === "content") showActivity("Thinking · preparing response…");
+        if (event.type === "tool_start") showActivity("Working · applying next step…");
+        if (event.type === "tool_result") showActivity("Working · checking result…");
+        if (event.type === "blocked") showActivity("Waiting for your approval", "waiting");
+        if (event.type === "tool_result") {
+          let result: any;
+          try { result = JSON.parse(event.text || "null"); } catch { result = null; }
+          if (!result?.error && result?.ok !== false) {
+            if (event.tool === "scaffold") void revealNewFiles(pathsFromOutput(result?.output));
+            if (["file_write", "file_patch"].includes(event.tool || "") && event.args?.path) {
+              const path = String(event.args.path);
+              const change=pendingChanges.get(path);if(change) {change.applied=true;changes.set(path,change);pendingChanges.delete(path);showUndo();}
+              void (async () => { await revealNewFiles([path]); await resyncOpenFilesFromDisk(); await openFile(path); })();
+            }
+
+          }
+        }
+        if (messages && following) messages.scrollTop = messages.scrollHeight;
+      },
+    });
+    renderChatMarkdown(answerText, result.answer);
+    finalStatus = result.stopped === "error" ? "Failed · no longer running" : result.stopped === "clarification" ? "Waiting for your answer" : result.stopped === "approval_required" ? "Stopped · change not applied" : result.stopped === "step_limit" ? "Stopped · unfinished" : "Done";
+    // Reuse the result instead of spending another model call summarising it.
+    const outcome = result.answer.replace(/\s+/g, " ").trim();
+    const brief = outcome.length > 140 ? `${outcome.slice(0, 137).trimEnd()}…` : outcome;
+    thinkingLabel.textContent = result.stopped === "approval_required"
+      ? "Thinking complete · Awaiting approval"
+      : result.stopped === "step_limit"
+        ? "Thinking stopped · Step limit reached"
+        : result.stopped === "error" ? "Thinking stopped · Task unfinished"
+        : `Thinking complete · ${brief || "Response ready"}`;
+
+  } catch (error) {
+    answerText.textContent = error instanceof GatewayError ? gatewayHint(error) : String((error as Error)?.message || error);
+    thinkingLabel.textContent = "Thinking interrupted · Request failed";
+    finalStatus = "Failed · no longer running";
+  } finally {
+    try { sessionStorage.setItem("tina4-assistant-session", JSON.stringify(assistantSession)); } catch { /* Storage quota does not block editing. */ }
+    assistantBusy = false;
+    if(undoButton) (undoButton as HTMLButtonElement).disabled=false;
+    if(resetButton) resetButton.disabled=false;
+    window.clearInterval(activityTimer);
+    if (send) { send.disabled = false; send.textContent = "Send"; }
+    flushThinking();
+    thinkingSection.open = false;
+    showActivity(finalStatus, finalStatus.startsWith("Failed") ? "error" : finalStatus.startsWith("Waiting") ? "waiting" : "idle");
+    input?.focus();
+  }
+}
+
+(window as any).__editorSideMode = setEditorSideMode;
+(window as any).__assistantSend = sendAssistantMessage;
+(window as any).__assistantReset = () => {
+  if(assistantBusy) return;
+  assistantSession=createAgentSession();
+  assistantImages=[];
+  try { sessionStorage.removeItem("tina4-assistant-session"); } catch {}
+  document.getElementById("assistant-messages")?.replaceChildren();
+  document.getElementById("assistant-image-list")?.replaceChildren();
+  const status=document.getElementById("assistant-status");
+  if(status) {status.textContent="Ready for a new task";status.dataset.state="idle";}
+  const input=document.getElementById("assistant-prompt") as HTMLTextAreaElement | null;
+  if(input) {input.value="";input.focus();}
+};
 
 // ── Inline completion state ─────────────────────────────────────
 //
@@ -1811,6 +2210,19 @@ function showCtxMenu(e: MouseEvent, path: string, isDir: boolean): void {
     `;
   }
 
+  if (!isDir && /(?:^|\/)routes\//.test(path)) {
+    const addPreviews = (content: string) => {
+      if (!menu.isConnected) return;
+      for (const route of previewRoutes(content)) {
+        const button=document.createElement("button"); button.className="ctx-item";
+        button.textContent=`Preview GET ${route}`;
+        button.onclick=()=>{hideCtxMenu();let cancelled=false;const url=route.replace(/\{([^}]+)\}/g, (_match, name)=>{const value=prompt(`Value for ${name}:`);if(!value)cancelled=true;return encodeURIComponent(value||"");});if(!cancelled)previewRouteUrl(url);};
+        menu.append(button);
+      }
+    };
+    const opened=openFiles.find(file=>file.path===path);
+    queueMicrotask(()=>{ if(opened) addPreviews(opened.content); else void api<any>(`/file?path=${encodeURIComponent(path)}`).then(data=>addPreviews(data.content||"")).catch(()=>{}); });
+  }
   document.body.appendChild(menu);
   ctxMenuEl = menu;
 
