@@ -1,7 +1,13 @@
+import {pageCssGuidance,normalizeUtilitySpelling} from '../src/ai-tina4-css';
 import { expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { utilityCatalog, utilityContrastIssues, normalizeUtilityEdits, applyUtilityChanges, templateSelectors, tina4CssGuidance } from '../src/ai-tina4-css';
 const catalog=utilityCatalog(readFileSync('../tina4-css/dist/tina4.min.css','utf8'));
+it('normalizes unambiguous generated utility spelling without changing custom names or Twig',()=>{
+ expect(normalizeUtilitySpelling('<a class="btn btn_secondary custom_name">Story</a>',catalog)).toBe('<a class="btn btn-secondary custom_name">Story</a>');
+ expect(normalizeUtilitySpelling('<a class="btn_secondary">Story</a>',catalog,'.btn_secondary {color:red}')).toContain('btn_secondary');
+ expect(normalizeUtilitySpelling('<a class="{{ btn_secondary }}">Story</a>',catalog)).toContain('{{ btn_secondary }}');
+});
 it('reads actual installed Tina4CSS roles and utilities',()=>{
  expect(catalog['text-warning'].color).toBeTruthy();expect(catalog.container).toBeTruthy();
  expect(tina4CssGuidance(catalog)).toContain('compile-time SCSS variables');
@@ -40,4 +46,25 @@ it('detects inherited and overridden low-contrast utility colours without rewrit
  expect(utilityContrastIssues(fixed,catalog)).toEqual([]);
  expect(fixed).toContain('href="/">Keep link</a>');
  expect(tina4CssGuidance(catalog)).toContain('Compatible text/background pairs');
+});
+
+it('limits page guidance to installed classes without inventing assets',()=>{
+ const text=pageCssGuidance({'container':{},'bg-light':{},'text-dark':{},'btn':{},'btn-primary':{},'unrelated-framework-demo':{}});
+ expect(text).toContain('container');expect(text).toContain('bg-light');
+ expect(text).not.toContain('unrelated-framework-demo');expect(text).not.toContain('btn-secondary');
+});
+
+it('rejects misspelled utilities while allowing semantic classes',async()=>{
+ const {validateUtilitySpelling}=await import('../src/ai-tina4-css');
+ expect(()=>validateUtilitySpelling('<a class="btn_primary">Go</a>',{'btn-primary':{}})).toThrow('btn-primary');
+ expect(()=>validateUtilitySpelling('<section class="my_feature btn-primary"></section>',{'btn-primary':{}})).not.toThrow();
+});
+
+it('includes responsive utilities without treating conditional declarations as unconditional',()=>{
+ const result=utilityCatalog('.col-12 {width:100%} @media(min-width:768px){.col-md-4 {width:33.333%}.text-dark {color:black}}');
+ expect(result['col-md-4']).toEqual({});
+ expect(result['text-dark']).toEqual({});
+ expect(result['col-12'].width).toBe('100%');
+ expect(pageCssGuidance(result)).toContain('col-md-4');
+ expect(catalog['col-md-4']).toBeDefined();
 });

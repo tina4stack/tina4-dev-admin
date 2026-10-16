@@ -34,3 +34,16 @@ it('rejects parent-only foreground repairs for measured child text defects',()=>
  expect(()=>applyPresentationProposal(proposal('.detail'),files,{},['a'])).toThrow(/directly/);
  expect(applyPresentationProposal(proposal('.detail a'),files,{},['a'])['page.scss']).toContain('.detail a');
 });
+it('rejects unrelated spacing when repairing measured contrast',()=>{
+ expect(()=>applyPresentationProposal({styles:[{path:'page.scss',selector:'body',property:'padding-top',value:'40px'}]},files,{},['a'])).toThrow(/Spacing alone/);
+});
+
+it('requires conflicting utilities to be removed before a custom declaration',()=>{
+ const files={'page.twig':'<a class="text-primary" href="mailto:a@example.com">Email</a>','page.scss':''};
+ const catalog={'text-primary':{color:'#4a90d9'}};
+ const styles=[{path:'page.scss',selector:'a',property:'color',value:'#000000'}];
+ expect(()=>applyPresentationProposal({styles},files,catalog)).toThrow(/conflicts/);
+ const result=applyPresentationProposal({styles,edits:[{path:'page.twig',selector:'a',add:[],remove:['text-primary']}]},files,catalog);
+ expect(result['page.twig']).toContain('href="mailto:a@example.com"');
+ expect(result['page.twig']).not.toContain('text-primary');
+});

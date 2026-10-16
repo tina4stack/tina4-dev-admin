@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import {cpSync,mkdirSync} from "node:fs";
 import { resolve } from "path";
 
 // Target a specific tina4 backend when running `npm run dev`. The
@@ -15,6 +16,11 @@ const backend = process.env.TINA4_BACKEND || "http://localhost:7202";
 const agent   = process.env.TINA4_AGENT   || "http://localhost:9202";
 
 export default defineConfig({
+  plugins:[{name:'pdf-context-assets',closeBundle(){
+    const dest=resolve(__dirname,'dist/tina4-pdf');mkdirSync(dest,{recursive:true});
+    cpSync(resolve(__dirname,'node_modules/pdfjs-dist/build/pdf.worker.min.mjs'),resolve(dest,'pdf.worker.min.mjs'));
+    for(const name of ['cmaps','standard_fonts','wasm'])cpSync(resolve(__dirname,'node_modules/pdfjs-dist',name),resolve(dest,name),{recursive:true});
+  }}],
   server: {
     port: 5173,
     proxy: {

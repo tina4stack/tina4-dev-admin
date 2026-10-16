@@ -1,3 +1,4 @@
+import {fillContract,fillInstructions} from './ai-fill-contract';
 import { pythonLanguage } from "@codemirror/lang-python";
 import type { ChatMessage } from "./ai-gateway";
 
@@ -8,7 +9,7 @@ export interface SelectionContext {
 /** Read the entire Python document for dependencies and the enclosing scope.
  * Other AI-FILL bodies are not tasks. The full source is still used by the
  * syntax validator and duplicate guard before offering any replacement. */
-export function selectionMessages(ctx: SelectionContext, feedback = ""): ChatMessage[] {
+export function selectionMessages(ctx: SelectionContext, feedback = "", grounding = ""): ChatMessage[] {
   const source = ctx.prefix + ctx.selected + ctx.suffix;
   const imports: string[] = [], scopes: string[] = [];
   if (ctx.language === "python") {
@@ -30,7 +31,7 @@ export function selectionMessages(ctx: SelectionContext, feedback = ""): ChatMes
   const example = ctx.language === "python" && /\bORM\b|src\.orm\./i.test(ctx.selected)
     ? `Tina4 Python example:\n    from src.orm.Product import Product\n    rows = Product.all()\n    return response({"records": [r.to_dict() for r in rows]})\n\n`
     : "";
-  return [{role: "user", content: `${context}\n${example}Implement this selected block in the same ${ctx.language === "python" ? "Tina4" : ctx.language} style. Output replacement statements only.\n${ctx.selected}${feedback ? `\nPrevious completion was rejected: ${feedback}. Correct that problem.` : ""}`}];
+  return [{role: "user", content: `${context}\n${grounding}\n${example}${fillInstructions(fillContract(ctx.selected))}\nSELECTED BLOCK:\n${ctx.selected}${feedback ? `\nPrevious completion was rejected: ${feedback}. Correct that problem.` : ""}`}];
 }
 
 /** Validate the reconstructed file and the selected contract, without executing it. */
@@ -42,6 +43,13 @@ export function selectionProblem(code: string, ctx: SelectionContext): string {
   let invalid = false;
   pythonLanguage.parser.parse(ctx.prefix + code + ctx.suffix).iterate({enter(node) { if (node.type.isError) invalid = true; }});
   if (invalid) return "The replacement produces invalid Python syntax or indentation";
+  const contract=fillContract(ctx.selected);
+  const executable=code.replace(/#.*$/gm,'');
+  const calls=[...(contract.use||'').matchAll(/\b([A-Z]\w*\.\w+)\(/g)].map(m=>m[1]);
+  if(calls.length && !calls.some(call=>executable.includes(call+'(')))return 'Use the specified API: '+calls.join(' or ');
+  for(const key of (contract.returns||'').matchAll(/["']([\w-]+)["']\s*:/g))
+    if(!new RegExp('["\']'+key[1]+'["\']\\s*:').test(executable))return 'Preserve the required response key: '+key[1];
+  if(/tina4_context\s*\(/.test(code) && contract.ground)return 'Ground is a documentation lookup, not application code to insert';
   const requiredCall = ctx.selected.match(/#\s*Return:\s*([\w.]+)\(/)?.[1];
   if (requiredCall && !code.includes(`return ${requiredCall}(`)) return `The Return contract requires return ${requiredCall}(...)`;
   return "";

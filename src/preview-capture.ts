@@ -5,7 +5,7 @@ export interface PreviewCapture { image: string; route: string; width: number; h
 
 /** Capture the page at its device viewport, excluding the development toolbar.
  * Same-origin DOM rendering stays local; no screen-sharing permission is needed. */
-async function captureOnce(frame: HTMLIFrameElement, route?: string): Promise<PreviewCapture> {
+async function captureOnce(frame: HTMLIFrameElement, route?: string, focus?:string): Promise<PreviewCapture> {
   const current=new URL(frame.contentWindow!.location.href);
   if(current.origin!==location.origin) throw new Error("Preview capture requires a same-origin page.");
   if(route) {
@@ -25,16 +25,26 @@ async function captureOnce(frame: HTMLIFrameElement, route?: string): Promise<Pr
   if(!doc || !win || !doc.body) throw new Error("Preview is unavailable.");
   await Promise.race([doc.fonts.ready,new Promise(resolve=>setTimeout(resolve,2500))]);
   await Promise.all([...doc.images].map(image=>image.complete ? Promise.resolve() : Promise.race([image.decode().catch(()=>{}),new Promise(resolve=>setTimeout(resolve,2500))])));
+  if(focus){const target=doc.querySelector(focus);if(!target)throw new Error("The changed preview region could not be located.");target.scrollIntoView({block:"center",behavior:"instant"});}
   await new Promise(resolve=>setTimeout(resolve,200));
   const width=win.innerWidth,height=win.innerHeight;
   if(width<1 || height<1) throw new Error("Show the preview panel before running visual checks.");
-  const {measurements,layoutIssues,content,contrastSelectors}=previewLayout(doc,win);
-  const canvas=await html2canvas(doc.documentElement,{
-    width,height,windowWidth:width,windowHeight:height,x:win.scrollX,y:win.scrollY,
+  const {measurements,layoutIssues,content,contrastSelectors}=previewLayout(doc,win,focus);
+  const scrollX=win.scrollX,scrollY=win.scrollY;
+  let captureTimeout:ReturnType<typeof setTimeout>|undefined;
+  const canvas=await Promise.race([html2canvas(doc.documentElement,{
+    width,height,windowWidth:width,windowHeight:height,x:scrollX,y:scrollY,scrollX,scrollY,
+    onclone:clone=>{
+      // A smooth-scrolling clone can still be at y=0 when its layout is parsed.
+      // Keep the cloned viewport synchronous with the captured source viewport.
+      clone.documentElement.style.scrollBehavior='auto';
+      clone.body.style.scrollBehavior='auto';
+      clone.defaultView?.scrollTo({left:scrollX,top:scrollY,behavior:'instant'});
+    },
     scale:Math.min(1,1280/Math.max(width,height)),useCORS:true,allowTaint:false,
     imageTimeout:3000,logging:false,
     ignoreElements:element=>element.id==='tina4-dev-toolbar',
-  });
+  }),new Promise<never>((_,reject)=>{captureTimeout=setTimeout(()=>reject(new Error('Preview rendering timed out.')),15000);})]).finally(()=>clearTimeout(captureTimeout));
   if(frame.contentDocument!==doc || !doc.defaultView) throw new Error("Preview changed during capture.");
   const url=new URL(win.location.href);url.searchParams.delete('_t4_capture');
   if(route && url.pathname!==new URL(route,location.origin).pathname) throw new Error('Preview route changed during capture.');
@@ -43,9 +53,9 @@ async function captureOnce(frame: HTMLIFrameElement, route?: string): Promise<Pr
 
 /** Dev reload may replace the iframe document during font/image or canvas work. Reacquire
  * the document on bounded retries; never return pixels from a detached/stale document. */
-export async function capturePreview(frame: HTMLIFrameElement, route?:string): Promise<PreviewCapture> {
+export async function capturePreview(frame: HTMLIFrameElement, route?:string,focus?:string): Promise<PreviewCapture> {
   for(let attempt=0;attempt<3;attempt++) {
-    try { return await captureOnce(frame, route); }
+    try { return await captureOnce(frame, route, focus); }
     catch(error) {
       if(attempt===2) throw error;
       await new Promise(resolve=>setTimeout(resolve,500));

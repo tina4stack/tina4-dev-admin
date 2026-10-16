@@ -1,0 +1,52 @@
+
+.notebook-cell{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;margin:8px 12px 8px 4px}
+.notebook-prompt{padding-top:30px;text-align:right;font:13px monospace;color:var(--text-muted,#939bb3)}
+.notebook-cell-body{min-width:0;position:relative}
+.notebook-cell-tools{display:flex;justify-content:flex-end;align-items:center;height:26px;gap:2px}
+.notebook-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:3px;border:0;border-radius:3px;background:transparent;color:var(--text-muted,#a9b1c8);cursor:pointer}
+.notebook-icon:hover{background:var(--surface,#283044);color:var(--text,#fff)}
+.notebook-icon:focus-visible{outline:2px solid #398aff;outline-offset:1px}
+.notebook-icon:disabled{opacity:.4;cursor:default}
+.notebook-icon svg{width:18px;height:18px}
+.notebook-icon svg [fill]:not([fill="none"]){fill:currentColor}
+.notebook-cell-input{border:1px solid var(--border,#45475a);border-radius:2px;overflow:hidden}
+.notebook-cell-input:focus-within{border-color:#398aff;box-shadow:0 0 0 1px #398aff}
+.notebook-cell-output:not(:empty){padding:10px 12px;margin-top:6px;background:#182235;border:1px solid var(--border,#45475a);border-radius:3px}
+.notebook-cell-output pre{margin:0 0 6px;font:13px/1.5 monospace}
+.notebook-cell-output pre:last-child{margin-bottom:0}
+.notebook-cell-input .toastui-editor-defaultUI{border:0}
+.notebook-cell-input .toastui-editor-toolbar{height:auto}
+.notebook-cell-input .toastui-editor-defaultUI-toolbar{height:auto;min-height:34px;padding:0 6px;flex-wrap:wrap}
+.notebook-cell-input .toastui-editor-toolbar-group{margin-top:0}
+.notebook-cell-input .toastui-editor-ww-container .toastui-editor-contents{padding:8px 12px}
+.notebook-cell-input .toastui-editor-contents{font-size:14px}
+.notebook-cell-input .toastui-editor-contents p{margin:4px 0}
+
+/* Floating formatting controls must not be clipped by the cell boundary. */
+.notebook-cell-input.notebook-markdown{position:relative;overflow:visible}
+.notebook-markdown .toastui-editor-defaultUI{overflow:visible}
+.notebook-markdown .toastui-editor-toolbar{position:absolute;bottom:100%;left:0;right:0;z-index:20;visibility:hidden;pointer-events:none}
+.notebook-markdown.has-text-selection .toastui-editor-toolbar{visibility:visible;pointer-events:auto}
+.notebook-markdown .toastui-editor-defaultUI-toolbar{border:1px solid var(--border,#45475a);border-radius:4px}
+.notebook-markdown .toastui-editor-popup{z-index:30}
+
+/* Compact notebook chrome; document heading sizes remain independent. */
+.notebook > div:first-child{font-size:12px;gap:6px!important;padding:4px 8px!important}
+.notebook > div:first-child .btn{font-size:12px;line-height:20px;padding:2px 8px;min-height:26px}
+.notebook > div:first-child [data-status]{font-size:12px}
+.notebook .notebook-icon{width:22px;height:22px;padding:3px}
+.notebook .notebook-icon svg{width:16px;height:16px}
+.notebook-markdown .toastui-editor-defaultUI-toolbar{zoom:.8;min-height:30px;padding:0 4px}
+.notebook-markdown .toastui-editor-popup{font-size:13px;line-height:1.4;max-height:300px;overflow:auto}
+.notebook-markdown .toastui-editor-popup-add-heading :is(h1,h2,h3,h4,h5,h6,p){font-size:14px;line-height:22px;margin:0;padding:0;border:0}
+.notebook-markdown .toastui-editor-popup-add-heading ul li{padding:3px 10px}
+.notebook-markdown .toastui-editor-popup-add-heading ul{padding:4px 0}
+
+/* Contain document layers beneath floating controls, then lift the active cell. */
+.notebook-cell{position:relative;z-index:0}
+.notebook-cell:has(.notebook-markdown.has-text-selection){z-index:3}
+.notebook-markdown .toastui-editor-main{position:relative;z-index:0}
+.notebook-markdown .toastui-editor-toolbar{z-index:40}
+.notebook-markdown .toastui-editor-popup,
+.notebook-markdown .toastui-editor-dropdown-toolbar{z-index:50;background-color:#22232b}
+.notebook > div:first-child{z-index:60!important}

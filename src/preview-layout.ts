@@ -5,8 +5,20 @@ export function contrastRatio(foreground:string,background:string):number|null {
   const luminance=(c:number[])=>c.map(v=>{v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4;}).reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i],0);
   const x=luminance(a),y=luminance(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);
 }
+/** Composite computed solid colour layers, outermost first. Unknown surfaces stay unknown. */
+export function compositeBackground(layers:string[]):string|undefined {
+ let result:number[]|undefined;
+ for(const layer of layers){
+  const m=layer.match(/^rgba?\(\s*([\d.]+)[, ]+([\d.]+)[, ]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/);
+  if(!m)continue;
+  const rgb=m.slice(1,4).map(Number),alpha=m[4]===undefined?1:Number(m[4]);
+  if(alpha===1)result=rgb;
+  else if(result)result=rgb.map((value,index)=>value*alpha+result![index]*(1-alpha));
+ }
+ return result ? `rgb(${result.map(value=>Math.round(value)).join(', ')})` : undefined;
+}
 /** Rendered evidence, independent of route names, copy or model predictions. */
-export function previewLayout(doc: Document, win: Window): {measurements:string; layoutIssues:string[]; content:string[]; contrastSelectors:string[]} {
+export function previewLayout(doc: Document, win: Window, focus?:string): {measurements:string; layoutIssues:string[]; content:string[]; contrastSelectors:string[]} {
   const selector=(el:Element)=>el.tagName.toLowerCase()+(el.id?'#'+el.id:'')+[...el.classList].map(c=>'.'+c).join('');
   const layout=(el:Element)=>{
     const s=win.getComputedStyle(el),r=el.getBoundingClientRect();
@@ -44,13 +56,14 @@ export function previewLayout(doc: Document, win: Window): {measurements:string;
   const contrastSelectors:string[]=[];
   const layoutIssues:string[]=[],affected=new Set<Element>();
   for(const element of new Set(boxes.map(box=>box.node.parentElement!))) {
-    let background:string|undefined,unsupported=false;
+    let unsupported=false;const backgrounds:string[]=[];
     for(let el:Element|null=element;el;el=el.parentElement){
       const style=win.getComputedStyle(el);
       if(Number(style.opacity)<1 || style.backgroundImage && style.backgroundImage!=='none' || style.filter && style.filter!=='none'){unsupported=true;break;}
       const colour=style.backgroundColor;
-      if(!background && colour && colour!=='transparent' && !/^rgba\([^)]*,\s*0\s*\)$/.test(colour))background=colour;
+      if(colour)backgrounds.unshift(colour);
     }
+    const background=compositeBackground(backgrounds);
     if(unsupported || !background)continue;
     const style=win.getComputedStyle(element),ratio=contrastRatio(style.color,background);
     const large=parseFloat(style.fontSize)>=24 || parseFloat(style.fontSize)>=18.66 && Number(style.fontWeight)>=700;
@@ -66,5 +79,7 @@ export function previewLayout(doc: Document, win: Window): {measurements:string;
       for(const box of [a,b]){let el=box.node.parentElement;for(let n=0;el&&n<4;n++,el=el.parentElement)affected.add(el);}
     }
   }
-  return {content,contrastSelectors:[...new Set(contrastSelectors)],measurements:JSON.stringify({viewport:{width:win.innerWidth,height:win.innerHeight},bodyBackground:win.getComputedStyle(doc.body).backgroundColor,affectedLayout:[...affected].slice(0,24).map(layout),visibleLayout:[...new Set(boxes.flatMap(b=>[b.node.parentElement,b.node.parentElement?.parentElement]).filter((e):e is HTMLElement=>!!e))].slice(0,32).map(layout),text:boxes.slice(0,70).map(({node,...box})=>box)}),layoutIssues:[...new Set(layoutIssues)].slice(0,10)};
+  const focused=focus ? doc.querySelector(focus) : null;
+  const focusedLayout=focused ? [focused,...focused.querySelectorAll('*')].slice(0,24).map(layout) : [];
+  return {content,contrastSelectors:[...new Set(contrastSelectors)],measurements:JSON.stringify({focusedLayout,viewport:{width:win.innerWidth,height:win.innerHeight},bodyBackground:win.getComputedStyle(doc.body).backgroundColor,images:[...doc.querySelectorAll("img")].filter(image=>!image.closest("#tina4-dev-toolbar")).map(image=>({src:image.getAttribute("src"),alt:image.alt,loaded:image.complete&&image.naturalWidth>0,...layout(image)})),affectedLayout:[...affected].slice(0,24).map(layout),visibleLayout:[...new Set(boxes.flatMap(b=>[b.node.parentElement,b.node.parentElement?.parentElement]).filter((e):e is HTMLElement=>!!e))].slice(0,32).map(layout),text:boxes.slice(0,70).map(({node,...box})=>box)}),layoutIssues:[...new Set(layoutIssues)].slice(0,10)};
 }

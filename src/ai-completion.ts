@@ -1,3 +1,6 @@
+import {editMarkerGuidance} from './edit-markers';
+import {checkProposedSource} from './code-security';
+import {fillRange} from './ai-fill-contract';
 import {groundCompletionImages} from "./ai-image-placeholders";
 import {loadTina4Css,tina4CssGuidance} from "./ai-tina4-css";
 /**
@@ -26,7 +29,7 @@ import { EditorState, StateField, StateEffect, Prec } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { streamChat } from "./ai-gateway";
 import { selectionMessages, selectionProblem } from "./ai-selection";
-import { trimSuffixOverlap, completionCode, repeatsExistingCode, selectionCompletion } from "./ai-completion-output";
+import { trimSuffixOverlap, completionCode, repeatsExistingCode, selectionCompletion, templateCompletionProblem } from "./ai-completion-output";
 
 // ── Ghost state (what the user currently sees) ─────────────────
 
@@ -241,11 +244,16 @@ function triggerPlugin(opts: CompletionOpts) {
         }
       }
 
-      async fire(manual = false) {
+      async fire(manual = false):Promise<void> {
+        if(/^\s*>>>/.test(this.view.state.doc.lineAt(this.view.state.selection.main.head).text))return;
         this.state.timer = null;
         if (!manual && !opts.enabled()) return;
 
         const view = this.view;
+        if(manual && view.state.selection.main.empty){
+          const range=fillRange(view.state.doc.toString(),view.state.selection.main.head);
+          if(range){view.dispatch({selection:{anchor:range.from,head:range.to}});return this.fire(true);}
+        }
         const state = view.state;
         const sel = state.selection.main;
         // One selection is a replacement target; multiple cursors are ambiguous.
@@ -327,16 +335,29 @@ function triggerPlugin(opts: CompletionOpts) {
             }catch(error){if(abort.signal.aborted)throw error;return false;}
           });
           if(requestId!==this.state.nextRequestId)return;
-          const bounded = selected ? selectionCompletion(code, prefix, selected, opts.language()) : trimSuffixOverlap(manual && /html|twig/i.test(opts.language()) ? code.trimEnd() : boundCompletion(code), suffix);
+          let bounded = selected ? selectionCompletion(code, prefix, selected, opts.language()) : trimSuffixOverlap(manual && /html|twig/i.test(opts.language()) ? code.trimEnd() : boundCompletion(code), suffix);
           feedback = selected ? selectionProblem(bounded, {prefix, suffix, selected, language: opts.language(), path: opts.path()}) : "";
+          feedback ||= templateCompletionProblem(bounded,prefix,selected,suffix,opts.language());
           if (!feedback && bounded.length >= MIN_SHOW_CHARS && bounded.trim() !== selected.trim() && !repeatsExistingCode(bounded, prefix, suffix)) {
+            opts.onStatus?.("Autocomplete: checking proposed source…");
+            const security=await checkProposedSource(opts.path() || 'source.txt',prefix+bounded+suffix);
+            if(requestId!==this.state.nextRequestId || abort.signal.aborted)return;
+            if(security.status==='error')throw new Error(security.reason);
+            if(security.status==='blocked') {feedback='Fix these security findings in the proposed completion, without changing unrelated code: '+JSON.stringify(security.findings);continue;}
+            if(typeof security.content==='string') {
+              if(!security.content.startsWith(prefix) || !security.content.endsWith(suffix)) {
+                feedback='Lint autofix would change code outside the selected completion. Resolve lint issues within the selection only.';continue;
+              }
+              bounded=security.content.slice(prefix.length,security.content.length-suffix.length);
+            }
             view.dispatch({ effects: setGhost.of({ from: pos, to: sel.to, text: bounded, requestId }) });
-            opts.onStatus?.(selected ? "Replacement ready · Tab to apply · Esc to dismiss" : "Completion ready · Tab to accept");
+            opts.onStatus?.((selected ? "Replacement ready · Tab to apply · Esc to dismiss" : "Completion ready · Tab to accept") + (security.status === "passed" ? " · Security check passed" : ` · ${security.reason}`));
             return;
           }
           feedback ||= "Output duplicated existing code or did not change the selection";
+          console.warn("[completion rejected]",feedback,accumulated);
           }
-          opts.onStatus?.("No usable completion returned · refine the selected comments and retry");
+          opts.onStatus?.("Completion could not satisfy the block: "+feedback);
         } catch (e: any) {
           if (e?.name === "AbortError") return;
           // Network / server errors are common when the LLM host is
@@ -414,7 +435,8 @@ ${ctx.feedback ? `Previous response rejected: ${ctx.feedback}. Correct this.\n` 
 Return just the raw missing insertion, without Markdown fences.`;
 
   const framework = /html|twig/i.test(ctx.language) ? await loadTina4Css() : null;
-  const markupGuidance = /html|twig/i.test(ctx.language) ? "For an explicit HTML suggestion, complete the intended semantic section with useful context-aware copy and a cohesive layout using existing classes. Include accessible image placeholders when appropriate: use an existing local asset if available, otherwise an inline SVG placeholder with an accessible label, never an invented URL. Produce balanced markup and respect existing surrounding tags. Do not expand a small inline edit into a whole page. Output raw code only, no fences or commentary. Do not repeat the selected instruction comment. For SVG use xmlns=\"http://www.w3.org/2000/svg\", role=\"img\" and an accessible title. Use simple rect placeholders rather than complex invented paths. Never use Tailwind classes unless the supplied installed catalog includes them. " + (framework ? tina4CssGuidance(framework) : "Reuse classes already present in the document.") : "";
+  const markerGuidance=editMarkerGuidance({[ctx.path || "current file"]:ctx.prefix+ctx.selected+ctx.suffix});
+  const markupGuidance = /html|twig/i.test(ctx.language) ? "For an explicit HTML suggestion, complete the intended semantic section with useful context-aware copy and a cohesive layout using existing classes. Include accessible image placeholders when appropriate: use an existing local asset if available, otherwise an inline SVG placeholder with an accessible label, never an invented URL. Read the full document for context, but produce only the missing or selected fragment. Inside an established document or Twig block, never add a document shell: no doctype, html, head, body, extends, block or endblock wrappers. Preserve all surrounding source. A semantic header or footer within page content is allowed when requested. Produce balanced markup and respect existing surrounding tags. Do not expand a small inline edit into a whole page. Output raw code only, no fences or commentary. Do not repeat the selected instruction comment. For SVG use xmlns=\"http://www.w3.org/2000/svg\", role=\"img\" and an accessible title. Use simple rect placeholders rather than complex invented paths. Never use Tailwind classes unless the supplied installed catalog includes them. " + (framework ? tina4CssGuidance(framework) : "Reuse classes already present in the document.") : "";
   // System prompt: keeps qwen focused on "only emit the middle text."
   // Without this the chat wrapper sometimes pulls in prose
   // explanations. Plan intent is appended here so it influences the
@@ -424,6 +446,7 @@ Return just the raw missing insertion, without Markdown fences.`;
     ...(ctx.manual || ctx.selected ? [markupGuidance] : []),
     "You receive the complete file split into BEFORE CURSOR and AFTER CURSOR.",
     "Output ONLY the missing middle text that goes at the cursor.",
+    markerGuidance,
     "Read nearby comments and docstrings on both sides of the cursor, especially AI-FILL, Intent, Given, Use, Return and Ground annotations. They describe the implementation contract. Use the named framework APIs and return shape; do not repeat comments or imports. Do not invent imports or model definitions that are absent from the file. Only propose code that fits at this cursor without leaving conflicting placeholder statements.",
     "No explanation, no markdown fences, no restating the prefix or suffix.",
     "The prefix and suffix together contain the ENTIRE current file. Insert only missing code at their boundary; do not restart the file or repeat existing imports, declarations or markup. If nothing is missing, return an empty response.",
@@ -448,7 +471,7 @@ Return just the raw missing insertion, without Markdown fences.`;
       options: {
         // Most inline suggestions are 1–8 lines — 200 tokens is plenty
         // without letting the model ramble into full function bodies.
-        num_predict: /html|twig/i.test(ctx.language) && (ctx.manual || ctx.selected) ? 1800 : ctx.selected ? 600 : 200,
+        num_predict: /html|twig/i.test(ctx.language) && (ctx.manual || ctx.selected) ? 1800 : ctx.selected ? 1200 : 200,
         temperature: 0.15,
         stop: ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|endoftext|>"],
       },

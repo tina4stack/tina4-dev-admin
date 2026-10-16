@@ -38,6 +38,7 @@
     "@codemirror/view": "^6.41.0",
     "@toast-ui/editor": "^3.2.2",
     "html2canvas": "^1.4.1",
+    "pdfjs-dist": "^6.4.299",
     "postcss": "^8.5.29",
     "postcss-scss": "^4.0.9",
     "tina4js": "^1.0.15"

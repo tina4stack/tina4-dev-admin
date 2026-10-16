@@ -1,3 +1,4 @@
+import { tina4ProjectLayout } from './ai-project-layout';
 import { runtimeClock } from "./ai-clock";
 // ── Tina4 AI gateway client ──────────────────────────────────
 //
@@ -28,6 +29,7 @@ export interface ChatMessage {
 }
 
 export interface ChatRequest {
+  projectGuidance?: boolean;
   model: string;
   messages: ChatMessage[];
   /** Thinking on/off. Native Ollama/Qwen3 flag — omit to leave the model's
@@ -89,7 +91,11 @@ async function streamOnce(
 ): Promise<void> {
   const lastUser=req.messages.map(m=>m.role).lastIndexOf("user");
   const clock=runtimeClock();
-  const messages=req.messages.map((message,index)=>index===lastUser ? {...message,content:`${message.content}\n\n${clock}`} : message);
+  const stage=req.messages.find(message=>message.role==="system")?.content;
+  const messages=req.messages.map((message,index)=>index===lastUser ? {...message,content:`${message.content}\n\n${clock}${stage ? `\n\nCurrent stage output contract: ${stage}` : ""}`} : message);
+  const systemIndex=messages.findIndex(message=>message.role==='system');
+  if(req.projectGuidance!==false && systemIndex>=0)messages[systemIndex]={...messages[systemIndex],content:tina4ProjectLayout+'\n\nCURRENT STAGE CONTRACT (takes precedence over general project guidance):\n'+messages[systemIndex].content};
+  else if(req.projectGuidance!==false) messages.unshift({role:'system',content:tina4ProjectLayout});
   const body = { ...req, messages, stream: true };
 
   let r: Response;
@@ -152,10 +158,11 @@ class TokenLimitError extends Error {}
 export async function streamChat(req: ChatRequest, handlers: Parameters<typeof streamOnce>[1]): Promise<void> {
   const answerBudget = Number(req.options?.num_predict || 1200);
   let budget = Math.min(16384, answerBudget + (req.think ? 2048 : 0));
+  let retryInstruction="";
   for (let attempt = 0; attempt < 3; attempt++) {
     let content = '';
     try {
-      await streamOnce({...req, options:{...req.options, num_predict:budget}}, {
+      await streamOnce({...req, messages:retryInstruction ? [...req.messages,{role:"user",content:retryInstruction}] : req.messages, options:{...req.options, num_predict:budget}}, {
         ...handlers, onContent: token => { content += token; },
       });
       if (!content.trim()) throw new Error('The model returned no answer.');
@@ -163,7 +170,7 @@ export async function streamChat(req: ChatRequest, handlers: Parameters<typeof s
       return;
     } catch (error) {
       if(handlers.signal?.aborted || attempt===2)throw error;
-      if(error instanceof TokenLimitError && budget<16384){budget=Math.min(16384,budget*2);continue;}
+      if(error instanceof TokenLimitError && budget<16384){console.warn("Model response truncated",content.slice(0,400));retryInstruction="Your previous response exceeded the output limit. Complete only the current stage in its requested format. Be concise, omit repeated explanation and do not implement later stages. Return a complete answer within the budget.";budget=Math.min(16384,budget*2);continue;}
       if(error instanceof GatewayError && [0,502,503,504].includes(error.status)){
         await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));continue;
       }

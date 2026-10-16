@@ -39,3 +39,25 @@ export function renderChatMarkdown(element: HTMLElement, content: string): void 
   element.classList.add("toastui-editor-dark");
   chatViewers.set(element,Editor.factory({el:element,viewer:true,initialValue:content,usageStatistics:false,theme:"dark"}));
 }
+
+/** Notebook cells edit formatted text directly, without a second preview pane. */
+export function mountNotebookMarkdown(parent:HTMLElement,value:string,change:(value:string)=>void):()=>void {
+ ensureMarkdownStyles();
+ const editor=new Editor({el:parent,height:'auto',minHeight:'64px',initialEditType:'wysiwyg',initialValue:value,hideModeSwitch:true,usageStatistics:false,theme:'dark',autofocus:false,toolbarItems:[['heading','bold','italic','strike'],['ul','ol','task'],['link','quote','code']],events:{change:()=>change(editor.getMarkdown())}});
+ parent.classList.add('notebook-markdown');
+ // Treat the editor, toolbar and its popups as one interaction region.
+ // Toolbar items can be non-focusable: focusout must not hide them before click.
+ const interaction=(event:Event)=>{
+  parent.classList.toggle('has-text-selection',parent.contains(event.target as Node));
+ };
+ const hideToolbar=()=>parent.classList.remove('has-text-selection');
+ document.addEventListener('focusin',interaction);
+ document.addEventListener('pointerdown',interaction,true);
+ window.addEventListener('blur',hideToolbar);
+ return ()=>{
+  document.removeEventListener('focusin',interaction);
+  document.removeEventListener('pointerdown',interaction,true);
+  window.removeEventListener('blur',hideToolbar);
+  editor.destroy();
+ };
+}

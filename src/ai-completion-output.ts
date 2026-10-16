@@ -68,3 +68,21 @@ export function trimSuffixOverlap(code: string, suffix: string): string {
   }
   return code;
 }
+
+/** A template block is context, not permission to restart its document shell. */
+export function templateCompletionProblem(code:string,prefix:string,selected:string,suffix:string,language:string):string {
+  if(!/html|twig/i.test(language))return '';
+  const clean=(source:string)=>source.replace(/<!--[\s\S]*?-->|\{#[\s\S]*?#\}/g,'');
+  const outside=clean(prefix+suffix), replacement=clean(code), original=clean(selected);
+  if(!outside.trim())return ''; // A whole-document selection or genuinely empty document.
+  const shell=/<\/?(?:html|head|body)\b[^>]*>|<!doctype\b[^>]*>|\{%[-+]?\s*(?:extends|block|endblock)\b[\s\S]*?[-+]?%\}/gi;
+  const key=(token:string)=>token.startsWith('{%')
+    ? token.replace(/^\{%[-+]?\s*/,'').replace(/[-+]?%\}$/,'').trim().replace(/\s+/g,' ')
+    : token.match(/^<\/?[\w!]+/)![0].toLowerCase();
+  const counts=(source:string)=>{const result=new Map<string,number>();for(const token of source.match(shell)||[]) {const name=key(token);result.set(name,(result.get(name)||0)+1);}return result;};
+  const allowed=counts(original);
+  for(const [name,count] of counts(replacement)) {
+    if(count>(allowed.get(name)||0))return 'Return only the fragment at this cursor/selection. The surrounding document and Twig blocks already exist: do not add html, head, body, doctype, extends, block or endblock wrappers. Preserve the surrounding source; semantic header/footer elements inside the content are allowed.';
+  }
+  return '';
+}

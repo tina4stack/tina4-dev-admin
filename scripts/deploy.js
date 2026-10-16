@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from "fs";
+import { copyFileSync, existsSync, cpSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -47,6 +47,7 @@ for (const target of targets) {
   const dest = resolve(__dirname, target);
   try {
     copyFileSync(src, dest);
+    cpSync(resolve(__dirname,"../dist/tina4-pdf"),resolve(dirname(dest),"tina4-pdf"),{recursive:true});
     console.log(`Deployed → ${target}`);
     ok++;
   } catch (e) {

@@ -14,3 +14,8 @@ it('resolves interaction tests only against available project routes',()=>{
  expect(parsePreviewIntent('{"action":"test","route":"/counter"}',['/counter'])).toEqual({action:'test',route:'/counter'});
  expect(()=>parsePreviewIntent('{"action":"test","route":"/__dev"}',['/__dev'])).toThrow();
 });
+
+it('skips malformed objects before a valid operation without inventing navigation',()=>{
+ expect(parsePreviewIntent('{action: "preview"} {"action":"continue"}',[])).toEqual({action:'continue'});
+ expect(()=>parsePreviewIntent('{action:"continue"}',[])).toThrow();
+});

@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
-import { applyExactEdits, parseEditProposal, editBrief, editRetry, creationScope } from "../src/ai-followup";
+import { applyExactEdits, parseEditProposal, editBrief, editRetry, creationScope, partitionedCreationScope } from "../src/ai-followup";
+it('partitions creation without inventing or dropping requirements',()=>{
+ const task='Create a team page and link it from home. Keep the content.';
+ const clauses=[{text:'Create a team page',scope:'new'},{text:'and link it from home.',scope:'existing'},{text:'Keep the content.',scope:'both'}];
+ expect(partitionedCreationScope(task,{clauses})).toEqual({create:'Create a team page Keep the content.',existing:'and link it from home. Keep the content.'});
+ expect(()=>partitionedCreationScope(task,{clauses:[{text:'Create a team page with staff biographies.',scope:'new'}]})).toThrow('omitted or rewrote');
+});
 
 it("changes only the requested existing text and preserves other styles", () => {
   const files={"src/scss/page.scss":"body { background: white; color: black; }"};

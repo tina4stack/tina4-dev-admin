@@ -1,3 +1,4 @@
+import pageDesign from './skills/page-design.md?raw';
 import { contrastRatio } from './preview-layout';
 import { parse } from 'postcss-scss';
 import { assertContentPreserved } from './ai-content-preservation';
@@ -7,12 +8,15 @@ export interface UtilityChange { selector:string; add:string[]; remove?:string[]
 export function utilityCatalog(css:string):UtilityCatalog {
   const result:UtilityCatalog={};
   parse(css).walkRules(rule=>{
-    if(rule.parent?.type!=='root') return;
+    const conditional=rule.parent?.type!=='root';
+    if(conditional && !(rule.parent?.type==='atrule' && rule.parent.name==='media')) return;
     for(const selector of rule.selectors) {
       const match=selector.match(/^\.([a-zA-Z][\w-]*)$/);
       if(!match)continue;
       const declarations:Record<string,string>={};
-      rule.nodes.forEach(node=>{if(node.type==='decl')declarations[node.prop]=node.value;});
+      // Conditional classes exist, but their declarations are not unconditional
+      // colour/layout evidence. The live viewport verifies their actual effect.
+      if(!conditional)rule.nodes.forEach(node=>{if(node.type==='decl')declarations[node.prop]=node.value;});
       result[match[1]]={...result[match[1]],...declarations};
     }
   });
@@ -24,13 +28,36 @@ export async function loadTina4Css():Promise<UtilityCatalog|null> {
   const catalog=utilityCatalog(await response.text());
   return catalog.container && catalog['text-primary'] && catalog['bg-primary'] ? catalog : null;
 }
+/** HTML vocabulary, grounded in this project's installed stylesheet. */
+export function htmlComponentMap(catalog:UtilityCatalog):string {
+ const components:[string,string[],string][]=[
+  ['Card / panel',['card','card-body','card-header','card-footer'],'Use card as parent; card-header, one card-body and card-footer are separate children. Never put card and card-body on the same element or nest card-body within card-body. Cards group individual items, not the entire page.'],
+  ['Button / call to action',['btn','btn-primary','btn-secondary','btn-outline-primary'],'Use button for actions, a for navigation; include base and variant.'],
+  ['Page / section / columns',['container','container-fluid','row','col','col-12','col-md-6','col-md-4'],'Use a responsive container, row and columns.'],
+  ['Navigation',['navbar','navbar-brand','nav','nav-link'],'Use semantic nav and real destinations.'],
+  ['Form / field',['form-label','form-control','form-select','form-check','form-check-input'],'Associate labels with fields; choose the correct input type.'],
+  ['Table',['table','table-striped','table-bordered','table-responsive'],'Use table, thead, tbody and scoped th; wrapper for overflow.'],
+  ['Notice / status',['alert','alert-info','alert-success','alert-warning','alert-danger','badge'],'Use text and an appropriate semantic role, not colour alone.'],
+  ['Image',['img-fluid','rounded'],'Use real supplied URLs, descriptive alt text and responsive dimensions.'],
+  ['Spacing / alignment',['p-3','p-4','mb-3','gap-3','d-flex','align-items-center','justify-content-between','text-center'],'Choose only installed utilities appropriate to the request.']
+ ];
+ return 'HTML component mapping (not Python/backend guidance):\n| User asks for | Installed Tina4CSS classes | Composition |\n|---|---|---|\n'+components.map(([term,names,usage])=>`| ${term} | ${names.filter(n=>n in catalog).join(', ') || 'No mapped class installed; use semantic HTML and scoped SCSS'} | ${usage} |`).join('\n')+'\nNever invent a class from this vocabulary. The installed catalog is authoritative. Do not load Bootstrap separately. Keep the requested edit local.';
+}
+
 export function tina4CssGuidance(catalog:UtilityCatalog):string {
   const colours=Object.fromEntries(Object.entries(catalog).filter(([name])=>/^(text|bg)-/.test(name)));
-  return `Use the installed Tina4CSS framework by default. Its semantic theme roles are primary, secondary, success, danger, warning, info, light and dark. Choose suitable existing roles for the user's requested style; there is no style-name-to-palette mapping in the harness.
+  return `${pageDesign}\n${htmlComponentMap(catalog)}\nUse Bootstrap-style HTML built with the installed Tina4CSS framework by default. Structure layouts with container, row and col-* classes; compose cards with card and card-body, and buttons with btn plus an installed variant. Use the installed spacing and typography utilities. Bootstrap-style means Tina4CSS class conventions: do not load Bootstrap separately or assume unsupported Bootstrap classes exist. Its semantic theme roles are primary, secondary, success, danger, warning, info, light and dark. Choose suitable existing roles for the user's requested style; there is no style-name-to-palette mapping in the harness.
 Compatible text/background pairs (ratio >= 4.5; apply explicit text utilities to children that override inherited text): ${JSON.stringify(Object.entries(colours).filter(([name])=>name.startsWith('bg-')).map(([name,props])=>({background:name,text:Object.entries(colours).filter(([text,p])=>text.startsWith('text-') && (contrastRatio(p.color||'',props['background-color']||'')||0)>=4.5).map(([text])=>text)})))}
 Installed colour utilities and actual values: ${JSON.stringify(colours)}
 Available framework classes: ${Object.keys(catalog).join(' ')}
 Use grid, spacing, typography, component and colour utilities before custom SCSS. Compose controls with their base component class and variant; a colour utility alone does not supply component styling. Check layout classes against the installed catalog rather than assuming utilities from another CSS framework exist. Preserve custom semantic classes. Do not invent utility names or runtime theme variables: Tina4CSS theme variables are compile-time SCSS variables, and changing an unrelated variable cannot recolour its prebuilt CSS. Custom scoped SCSS is only for requirements absent from these utilities. Do not recreate resets, global typography or a parallel component system.`;
+}
+
+/** Keep page generation focused; the full catalog remains available for styling edits. */
+export function pageCssGuidance(catalog:UtilityCatalog):string {
+ const names=Object.keys(catalog).filter(name=>/^(container|row|col(?:-.*)?|card(?:-.*)?|btn(?:-.*)?|form-control|d-(?:flex|grid|block|none)|flex-(?:column|wrap)|align-items-center|justify-content-(?:between|center)|text-(?:start|center|primary|secondary|light|dark)|bg-(?:primary|secondary|light|dark)|[mp][trblxy]?-[0-5]|gap-[0-5]|rounded|shadow|w-100)$/.test(name));
+ const buttonColours=Object.entries(catalog).filter(([name,props])=>name.startsWith('btn-') && props['background-color']).map(([name,props])=>({variant:name,background:props['background-color'],readableTextUtilities:Object.entries(catalog).filter(([text,p])=>text.startsWith('text-') && (contrastRatio(p.color||'',props['background-color'])||0)>=4.5).map(([text])=>text)}));
+ return `${pageDesign}\n${htmlComponentMap(catalog)}\nInstalled button backgrounds and compatible text utilities: ${JSON.stringify(buttonColours)}. Choose readable text explicitly when the default variant text has insufficient contrast.\nThe base template already loads Tina4CSS. Generate Bootstrap-style HTML: use container > row > col-* for grids, card/card-body for cards, btn plus a variant for buttons, and spacing and typography utilities. Use only classes present in the installed list below; do not load Bootstrap separately. Prefer these utilities over custom layout classes or CSS. Use these installed classes for layout and styling: ${names.join(' ')}. Compose component base and variant classes. Do not import assets or include CSS in the content fragment. Custom scoped SCSS is a separate stage. Use contrasting text and backgrounds.`;
 }
 
 // Work on source tag offsets, never serialize Twig through the HTML parser.
@@ -51,7 +78,7 @@ export function applyUtilityChanges(source:string,changes:UtilityChange[],catalo
   const updates=new Map<number,string[]>();
   for(const change of changes) {
     if(!change || typeof change.selector!=='string' || !Array.isArray(change.add) || (change.remove!==undefined && !Array.isArray(change.remove)))throw new Error('Each class change requires a selector and class arrays.');
-    for(const name of [...change.add,...change.remove||[]]) if(typeof name!=='string' || !catalog[name])throw new Error(`Unknown Tina4CSS utility ${name}. Choose from the supplied catalog.`);
+    for(const name of [...change.add,...change.remove||[]]) if(typeof name!=='string' || !catalog[name])throw new Error(`Unknown Tina4CSS utility ${name}. This class does not exist. Remove it from add. Use an existing utility only if it expresses the requested effect; otherwise put the CSS property/value in styles for the existing SCSS file and remove any conflicting existing utility. Do not invent a replacement class.`);
     const elements=[...document.querySelectorAll(change.selector)].filter(el=>el.hasAttribute(marker));
     if(!elements.length)throw new Error(`Selector ${change.selector} does not match the page source. Use a selector from the supplied markup.`);
     for(const element of elements) {
@@ -103,4 +130,26 @@ export function utilityContrastIssues(source:string,catalog:UtilityCatalog):stri
   if(ratio!==null && ratio<4.5)issues.push(`${element.tagName.toLowerCase()}.${[...element.classList].join('.')} has ${color} on ${background}, contrast ${ratio.toFixed(2)}:1. Use a compatible explicit text/background pair; preserve content.`);
  }
  return issues;
+}
+
+/** Catch misspellings of installed utilities without banning custom semantic classes. */
+/** Correct only unambiguous generated utility spelling; retain known project names. */
+export function normalizeUtilitySpelling(source:string,catalog:UtilityCatalog,existingSource=''):string {
+ return source.replace(/(\bclass\s*=\s*)(["'])([\s\S]*?)\2/gi,(attribute,prefix,quote,value)=>{
+  if(/[{}]/.test(value))return attribute;
+  return prefix+quote+value.replace(/\S+/g,(name:string)=>{
+   const normalized=name.replace(/_/g,'-');
+   return !catalog[name] && !existingSource.includes(name) && catalog[normalized] ? normalized : name;
+  })+quote;
+ });
+}
+export function validateUtilitySpelling(source:string,catalog:UtilityCatalog):void {
+ const document=new DOMParser().parseFromString(source,'text/html');
+ const errors=new Set<string>();
+ for(const element of document.querySelectorAll('[class]'))for(const name of element.classList){
+  if(catalog[name] || /[{}]/.test(name))continue;
+  const normalized=name.replace(/_/g,'-');
+  if(normalized!==name && catalog[normalized])errors.add(`${name} is not installed; the installed utility is ${normalized}`);
+ }
+ if(errors.size)throw new Error([...errors].join('; ')+'. Preserve exact installed class names.');
 }

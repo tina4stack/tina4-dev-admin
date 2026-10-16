@@ -1,3 +1,5 @@
+import {validateTemplateHtml} from './ai-template-edit';
+import {parse as parseScss} from 'postcss-scss';
 import {javascriptLanguage} from "@codemirror/lang-javascript";
 /** Fill a generated page's content slot without replacing its framework shell.
  * Models may emit either a fragment or a whole document. CSS is transferred to
@@ -21,6 +23,7 @@ export function preparePageEdit(scaffold: string, generated: string, name: strin
     throw new Error("Return only complete HTML, without Markdown or explanation text.");
   }
   if (/\{%/.test(generated)) throw new Error("Return HTML content only. Twig structure is already supplied by the scaffold.");
+  validateTemplateHtml(generated);
   const document = new DOMParser().parseFromString(generated, "text/html");
   const styles = [...document.querySelectorAll("style")].map(node => node.textContent || "");
   const scripts=[...document.querySelectorAll('script')].map(node=>{
@@ -37,6 +40,7 @@ export function preparePageEdit(scaffold: string, generated: string, name: strin
     node.classList.add(className);
     node.removeAttribute("style");
   });
+  for (const style of styles) validateCssFunctions(style);
   const fragment = document.body.innerHTML.trim();
   if (fragment.length < 30 || !document.body.querySelector("h1,h2,p,form,section,article,div")) throw new Error("Return complete semantic HTML content, not a placeholder.");
   let content = scaffold.replace(block, (_, start, end) => `${start}\n<section class="${scope}">\n${fragment}\n</section>\n${end}`);
@@ -49,6 +53,20 @@ export function preparePageEdit(scaffold: string, generated: string, name: strin
     return `${start}${body}<script type="module" src="/js/${name}.js"></script>\n${end}`;
   });
   return {content, styles, scripts};
+}
+
+/** Catch invalid CSS math before Sass compilation; never rewrite the model's values. */
+export function validateCssFunctions(source: string): void {
+  const text=source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""');
+  for (const match of text.matchAll(/\bclamp\s*\(/g)) {
+    let depth=1, argumentsCount=1;
+    for(let i=match.index!+match[0].length;i<text.length && depth;i++) {
+      if(text[i]==='(') depth++;
+      else if(text[i]===')') depth--;
+      else if(text[i]===',' && depth===1) argumentsCount++;
+    }
+    if(depth || argumentsCount!==3) throw new Error('CSS clamp() requires three arguments: minimum, preferred value, maximum. Correct the stylesheet.');
+  }
 }
 
 /** Reject truncated or fenced output before writing a stylesheet. */
@@ -75,4 +93,17 @@ export function javascriptTokens(source:string):string {
  const tokens:string[]=[];
  javascriptLanguage.parser.parse(source).iterate({enter:node=>{if(!node.node.firstChild && !/Comment/.test(node.name))tokens.push(source.slice(node.from,node.to));}});
  return JSON.stringify(tokens);
+}
+
+/** Move model styling into the page stylesheet without changing shared theme rules. */
+export function scopePageStyles(source:string,name:string):string {
+ if(!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name) || !completeStylesheet(source))throw new Error('Incomplete page stylesheet.');
+ validateCssFunctions(source);
+ const root=parseScss(source),scope='.'+name.replace(/_/g,'-');
+ root.walkAtRules(rule=>{if(!['media','supports'].includes(rule.name))throw new Error('Only scoped rules and responsive media/supports blocks are allowed.');});
+ root.walkRules(rule=>{rule.selectors=rule.selectors.map(selector=>{
+  const local=selector.trim().replace(/^(?:html\s+)?body\b|^html\b|^:root\b/,scope);
+  return local===scope || local.startsWith(scope+' ') || local.startsWith(scope+'.') ? local : scope+' '+local;
+ });});
+ return root.toString();
 }

@@ -1,3 +1,11 @@
+import {mountVoiceInput} from '../voice-input';
+import {showImageHover,hideImageHover} from '../image-hover-preview';
+import {inferFileName,imageFolder} from '../editor-file-actions';
+import {loadTina4Css} from '../ai-tina4-css';
+import {prepareImportedSource} from '../code-security';
+import {mountNotebook} from './Notebook';
+import {inlineAgentCommand} from '../inline-agent-command';
+import {saveProjectContext, groundProjectContext, importPdfContext, selectProjectContext, publishReferencedImages} from '../project-context';
 import { PreviewBrowser } from "../preview-browser";
 import { capturePreview } from "../preview-capture";
 import { mountMarkdownEditor, renderChatMarkdown } from "../markdown-editor";
@@ -16,7 +24,7 @@ import { gatewayHint, GatewayError } from "../ai-gateway.js";
 // shim it fronts.
 
 // ── CodeMirror imports ──
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, Decoration, MatchDecorator, ViewPlugin } from "@codemirror/view";
 import type { ViewUpdate, DecorationSet } from "@codemirror/view";
 import { defaultKeymap, indentWithTab, insertNewlineAndIndent, history, historyKeymap } from "@codemirror/commands";
@@ -63,6 +71,9 @@ let expandedDirs: Set<string> = new Set([".", "src", "src/routes", "src/orm", "s
 let container: HTMLElement | null = null;
 let fileTreeCache: Map<string, any[]> = new Map();
 let assistantImages: string[] = [];
+let assistantImageNames:string[]=[];
+let assistantFiles: {name:string; content:string}[] = [];
+let attachmentReads: Promise<void> = Promise.resolve();
 let assistantBusy = false;
 let assistantSession = createAgentSession();
 try {
@@ -186,6 +197,7 @@ export function renderEditor(el: HTMLElement): void {
             <div class="editor-side-modes">
               <button class="editor-mode active" id="editor-mode-assistant" onclick="window.__editorSideMode('assistant')">Assistant</button>
               <button class="editor-mode" id="editor-mode-files" onclick="window.__editorSideMode('files')">Files</button>
+              <button class="editor-mode" id="editor-mode-notebook" onclick="window.__editorSideMode('notebook')">Notebook</button>
             </div>
           </div>
           <div style="display:flex;gap:4px;align-items:center">
@@ -194,16 +206,20 @@ export function renderEditor(el: HTMLElement): void {
           </div>
         </div>
         <div id="editor-file-tree" class="editor-file-tree"></div>
+        <div id="editor-notebook" hidden style="flex:1;overflow:auto;min-height:0"></div>
         <div id="editor-assistant" class="editor-assistant" hidden>
           <div class="assistant-messages" id="assistant-messages">
             <div class="assistant-welcome">Ask about this Tina4 project. The open file is included as context.</div>
           </div>
           <div class="assistant-composer-wrap">
             <div id="assistant-status" class="assistant-status" role="status" aria-live="polite"></div>
+            <div id="assistant-voice-status" role="status" aria-live="polite" class="assistant-voice-status"></div>
             <div id="assistant-image-list" class="assistant-image-list"></div>
             <textarea id="assistant-prompt" rows="3" placeholder="Give me something to do" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.__assistantSend()}"></textarea>
             <div class="assistant-composer-actions">
-              <label class="assistant-attach" title="Attach an image">＋ Image<input id="assistant-image-input" type="file" accept="image/*" multiple hidden></label>
+              <label class="assistant-attach" title="Add image" aria-label="Add image"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg><input id="assistant-image-input" type="file" accept="image/*" multiple hidden></label>
+              <label class="assistant-attach" title="Add project context" aria-label="Add project context"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M14 2H5v20h14V7zM14 2v5h5M8 12h8M8 16h5"/><path d="M20 12v6m-3-3h6"/></svg><input id="assistant-context-input" type="file" accept="application/pdf,.pdf,text/*,.md,.json,.csv,.py,.js,.ts,.twig,.scss,.yaml,.yml,.toml" multiple hidden></label>
+              <button type="button" class="btn btn-sm assistant-mic" id="assistant-mic" aria-label="Start live microphone" aria-pressed="false" title="Start live microphone (browser speech service)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg></button>
               <button class="btn btn-sm" id="assistant-reset" onclick="window.__assistantReset()" title="Clear conversation and start fresh">New chat</button>
               <button class="btn btn-sm" id="assistant-send" onclick="window.__assistantSend()">Send</button>
             </div>
@@ -685,7 +701,7 @@ function renderDir(dirPath: string, depth: number): string {
         : "";
       html += `<div class="tree-item tree-file ${statusClass} ${isActive ? "active" : ""}" style="padding-left:${indent + 16}px"
         data-path="${escapedPath}"
-        onclick="window.__editorOpenFile('${escapedPath}')"
+        ${/\.(png|jpe?g|gif|webp|svg|avif)$/i.test(entry.name) ? `tabindex="0" onmouseenter="window.__editorImageHover(this)" onmouseleave="window.__editorImageHoverHide()" onfocus="window.__editorImageHover(this)" onblur="window.__editorImageHoverHide()" draggable="true" ondragstart="window.__editorImageDrag(event,this.dataset.path)" ondblclick="window.__editorImageHoverHide();window.__editorOpenFile(this.dataset.path)" onkeydown="if(event.key==='Enter'){window.__editorImageHoverHide();window.__editorOpenFile(this.dataset.path)}" aria-label="${esc(entry.name)} — drag into HTML to insert; double-click to open"` : `onclick="window.__editorOpenFile('${escapedPath}')"` }
         oncontextmenu="event.preventDefault();window.__editorCtxMenu(event,'${escapedPath}',false)">
         <span class="tree-icon">${icon}</span>
         <span class="tree-name">${esc(entry.name)}</span>
@@ -1013,6 +1029,26 @@ function renderSvgPreview(content: string): void {
   el.innerHTML = cleaned;
 }
 
+async function runInlineAgentCommand(file:OpenFile,view:EditorView,from:number,to:number,instruction:string):Promise<void> {
+  // Persist the user's current buffer without the command before agent edits.
+  const original=view.state.doc.toString();
+  const clean=original.slice(0,from)+original.slice(to);
+  assistantBusy=true;
+  try {
+    await api('/file/save','POST',{path:file.path,content:clean});
+    if(view.state.doc.toString()!==original)throw new Error('The editor changed while saving. Retry the inline command.');
+    view.dispatch({changes:{from,to,insert:''}});file.content=clean;file.dirty=false;renderTabs();
+    const name=file.path.match(/src\/(?:templates\/pages|scss|routes)\/([^/]+)\.[^.]+$/)?.[1];
+    if(name)assistantSession.activePage={name,files:[file.path]};
+    const input=document.getElementById('assistant-prompt') as HTMLTextAreaElement|null;
+    if(!input)throw new Error('Assistant prompt is unavailable.');
+    input.value=`Apply this instruction to the current page in ${file.path}: ${instruction}`;
+    setEditorSideMode('assistant');
+  } catch(error){updateStatusBar(String((error as Error).message),true);assistantBusy=false;return;}
+  assistantBusy=false;
+  await sendAssistantMessage();
+}
+
 // ── Mount CodeMirror ──
 function mountCodeMirror(file: OpenFile, parent: HTMLElement): void {
   // Destroy previous view if any
@@ -1026,7 +1062,20 @@ function mountCodeMirror(file: OpenFile, parent: HTMLElement): void {
     run: () => { saveCurrentFile(); return true; },
   }]);
 
+  let inlineCommandTimer:ReturnType<typeof setTimeout>|undefined;
+  const cancelInlineCommand=()=>{if(inlineCommandTimer!==undefined)clearTimeout(inlineCommandTimer);inlineCommandTimer=undefined;};
   const updateListener = EditorView.updateListener.of(update => {
+    if(update.docChanged || update.selectionSet)cancelInlineCommand();
+    if(update.docChanged && !assistantBusy){
+      const line=update.state.doc.lineAt(update.state.selection.main.head);
+      const instruction=inlineAgentCommand(line.text);
+      if(instruction)inlineCommandTimer=setTimeout(()=>{
+        inlineCommandTimer=undefined;
+        const current=update.view.state.doc.lineAt(update.view.state.selection.main.head);
+        if(!assistantBusy && current.from===line.from && current.text===line.text)
+          void runInlineAgentCommand(file,update.view,current.from,current.to,instruction);
+      },2500);
+    }
     if (update.docChanged) {
       const newContent = update.state.doc.toString();
       file.content = newContent;
@@ -1077,6 +1126,33 @@ function mountCodeMirror(file: OpenFile, parent: HTMLElement): void {
         onStatus: (message) => { if (activeFile === file.path) updateStatusBar(message); },
       }),
       codeMenu(view => view.dispatch({effects: requestCompletion.of()}), previewRouteUrl),
+      EditorView.domEventHandlers({
+        dragover(event){if(/html|twig/i.test(file.language) && event.dataTransfer?.types.includes('application/x-tina4-image')){event.preventDefault();return true;}return false;},
+        drop(event,view){
+          const path=event.dataTransfer?.getData('application/x-tina4-image');
+          if(!path || !/html|twig/i.test(file.language))return false;
+          event.preventDefault();
+          if(!/^src\/public\/images\/.+\.(png|jpe?g|gif|webp|svg|avif)$/i.test(path)){updateStatusBar('Use an image in src/public/images',true);return true;}
+          const position=view.posAtCoords({x:event.clientX,y:event.clientY}) ?? view.state.selection.main.head;
+          const original=view.state.doc;
+          void loadTina4Css().catch(()=>null).then(catalog=>{
+            if(view.state.doc!==original)return;
+            const url='/'+path.slice('src/public/'.length).split('/').map(encodeURIComponent).join('/');
+            const alt=path.split('/').pop()!.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ').replace(/[&<>"']/g,'');
+            const markup=`<img src="${url}" alt="${alt}"${catalog?.['img-fluid'] ? ' class="img-fluid"' : ''} loading="lazy">`;
+            view.dispatch({changes:{from:position,insert:markup},selection:{anchor:position+markup.length}});view.focus();
+          });return true;
+        }
+      }),
+      Prec.highest(keymap.of([{key:'Enter',run:view=>{
+        const line=view.state.doc.lineAt(view.state.selection.main.head);
+        const instruction=inlineAgentCommand(line.text);
+        if(!instruction)return false;
+        if(assistantBusy){updateStatusBar('Wait for the current request to finish.',true);return true;}
+        cancelInlineCommand();
+        void runInlineAgentCommand(file,view,line.from,line.to,instruction);
+        return true;
+      }}])),
       saveKeymap,
       // Enter → insertNewlineAndIndent consults the language's indent
       // service, so `def foo():` followed by Enter lands inside the
@@ -1094,6 +1170,7 @@ function mountCodeMirror(file: OpenFile, parent: HTMLElement): void {
       ]),
       search(),
       updateListener,
+      ViewPlugin.fromClass(class {destroy(){cancelInlineCommand();}}),
       ...(Array.isArray(lang) ? lang : [lang]),
       EditorView.theme({
         "&": { height: "100%", fontSize: "13px" },
@@ -1324,6 +1401,9 @@ function getEditorCSS(): string {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #1e1e2e; color: #cdd6f4; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 
+    .editor-layout.notebook-mode .editor-sidebar { width:100% !important; flex:1 !important; max-width:none !important; }
+    .editor-layout.notebook-mode .editor-main, .editor-layout.notebook-mode .editor-resizer, .editor-layout.notebook-mode .editor-scaffold-bar { display:none !important; }
+    #editor-notebook[hidden] { display:none; }
     .editor-layout { display: flex; position: absolute; inset: 0; overflow: hidden; }
 
     .editor-sidebar { width: 240px; flex-shrink: 0; background: var(--bg, #181825); border-right: 1px solid var(--border, #313244); display: flex; flex-direction: column; overflow: hidden; }
@@ -1353,6 +1433,8 @@ function getEditorCSS(): string {
     .assistant-composer-actions { display: flex; align-items: center; gap: 8px; font-size: 0.7rem; color: var(--muted, #a6adc8); }
     .assistant-composer-actions #assistant-send { margin-left: auto; }
     .assistant-attach { cursor: pointer; }
+    .assistant-mic[aria-pressed="true"] { color: #fff; background: #a52036; }
+    .assistant-voice-status { font-size: 0.75rem; line-height: 1.4; }
     .assistant-status { min-height: 20px; color: var(--muted, #a6adc8); font-size: 0.8rem; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
     .assistant-status[data-state="active"] { color: #a5b4fc; }
     .assistant-status[data-state="active"]::before { content: ""; width: 12px; height: 12px; flex-shrink: 0; border: 2px solid #475569; border-top-color: #a5b4fc; border-radius: 50%; animation: assistant-spin 0.8s linear infinite; }
@@ -1361,6 +1443,9 @@ function getEditorCSS(): string {
     @keyframes assistant-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .assistant-status[data-state="active"]::before { animation: none; } }
     .assistant-image-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .assistant-sources { margin-top: 6px; font-size: 0.7rem; color: var(--text-muted, #a6adc8); }
+    .assistant-sources summary { cursor: pointer; }
+    .assistant-sources ul { max-height: 180px; overflow-y: auto; padding-left: 18px; margin: 6px 0; overflow-wrap: anywhere; }
     .assistant-image-chip { background: var(--surface, #313244); border-radius: 10px; padding: 2px 7px; font-size: 0.65rem; color: var(--text, #cdd6f4); }
 
     .tree-item { padding: 3px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
@@ -1552,21 +1637,31 @@ function toggleAI(): void {
   if (panel) panel.classList.toggle("collapsed", aiPanelCollapsed);
 }
 
-function setEditorSideMode(mode: "files" | "assistant"): void {
+function setEditorSideMode(mode: "files" | "assistant" | "notebook"): void {
   const assistant = mode === "assistant";
-  document.getElementById("editor-file-tree")?.toggleAttribute("hidden", assistant);
+  const notebook=mode==='notebook';
+  document.querySelector('.editor-layout')?.classList.toggle('notebook-mode',notebook);
+  document.getElementById('editor-notebook')?.toggleAttribute('hidden',!notebook);
+  document.getElementById('editor-mode-notebook')?.classList.toggle('active',notebook);
+  if(notebook)void mountNotebook(document.getElementById('editor-notebook')!);
+  document.getElementById("editor-file-tree")?.toggleAttribute("hidden", mode!=="files");
   document.getElementById("editor-assistant")?.toggleAttribute("hidden", !assistant);
-  document.getElementById("editor-mode-files")?.classList.toggle("active", !assistant);
+  document.getElementById("editor-mode-files")?.classList.toggle("active", mode==="files");
   document.getElementById("editor-mode-assistant")?.classList.toggle("active", assistant);
   if (assistant) document.getElementById("assistant-prompt")?.focus();
 }
 
+let disposeVoice:(()=>void)|undefined;
 function setupAssistantComposer(): void {
-  const input = document.getElementById("assistant-image-input") as HTMLInputElement | null;
-  input?.addEventListener("change", () => {
-    for (const file of Array.from(input.files || [])) addAssistantImage(file);
-    input.value = "";
-  });
+  disposeVoice?.();
+  const mic=document.getElementById('assistant-mic') as HTMLButtonElement;
+  const voicePrompt=document.getElementById('assistant-prompt') as HTMLTextAreaElement;
+  const voiceStatus=document.getElementById('assistant-voice-status')!;
+  disposeVoice=mountVoiceInput(mic,voicePrompt,voiceStatus,async()=>{if(assistantBusy)throw new Error('Assistant busy');await sendAssistantMessage();});
+  for(const id of ['assistant-image-input','assistant-context-input']) {
+    const input=document.getElementById(id) as HTMLInputElement|null;
+    input?.addEventListener('change',()=>{for(const file of Array.from(input.files||[]))queueAssistantFile(file);input.value='';});
+  }
   const prompt = document.getElementById("assistant-prompt");
   const composer = document.querySelector(".assistant-composer-wrap");
   composer?.addEventListener("dragover", (event) => {
@@ -1580,8 +1675,7 @@ function setupAssistantComposer(): void {
     event.preventDefault();
     composer.classList.remove("assistant-drop-active");
     Array.from((event as DragEvent).dataTransfer?.files || [])
-      .filter((file) => file.type.startsWith("image/"))
-      .forEach(addAssistantImage);
+      .forEach(queueAssistantFile);
   });
   prompt?.addEventListener("paste", (event) => {
     const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
@@ -1592,17 +1686,44 @@ function setupAssistantComposer(): void {
   });
 }
 
-function addAssistantImage(file: File): void {
-  if (!file.type.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    if (typeof reader.result !== "string") return;
-    assistantImages.push(reader.result.split(",", 2)[1] || "");
-    const list = document.getElementById("assistant-image-list");
-    if (list) list.innerHTML = assistantImages.map((_, i) => `<span class="assistant-image-chip">Image ${i + 1}</span>`).join("");
+function renderAssistantAttachments(): void {
+  const list=document.getElementById("assistant-image-list");
+  if(!list)return;
+  list.replaceChildren();
+  const chip=(label:string, remove:()=>void)=>{
+    const button=document.createElement('button');button.type='button';
+    button.className='assistant-image-chip';button.textContent=label+' ×';button.title='Remove '+label;
+    button.onclick=()=>{remove();renderAssistantAttachments();};list.append(button);
   };
-  reader.readAsDataURL(file);
+  assistantImages.forEach((_,i)=>chip(assistantImageNames[i] || 'Image '+(i+1),()=>{assistantImages.splice(i,1);assistantImageNames.splice(i,1);}));
+  assistantFiles.forEach((file,i)=>chip(file.name,()=>{assistantFiles.splice(i,1);}));
 }
+function queueAssistantFile(file:File):void {
+  attachmentReads=attachmentReads.then(async()=>{
+    if(file.type==='application/pdf' || /\.pdf$/i.test(file.name)){
+      const status=assistantBubble('assistant',`Importing ${file.name}…`);
+      const records=await importPdfContext(file,message=>{status.textContent=message;});
+      const related=records.filter(r=>r.sources?.some(source=>source.document===file.name));
+      status.textContent=`Saved ${file.name}: ${related.filter(r=>r.kind==='page').length} pages and ${related.filter(r=>r.kind==='image').length} reusable images in project context. ${related.filter(r=>r.warnings?.length).length} items have extraction or summary warnings.`;
+      return;
+    }
+    if(assistantImages.length+assistantFiles.length>=8)throw new Error('Attach at most 8 files per message.');
+    if(file.type.startsWith('image/')) {
+      if(file.size>1024*1024)throw new Error('Context images must be smaller than 1 MB.');
+      const bitmap=await createImageBitmap(file);const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d')!.drawImage(bitmap,0,0);const data=canvas.toDataURL('image/png');bitmap.close();canvas.width=0;canvas.height=0;
+      assistantImages.push(data.split(',',2)[1]);assistantImageNames.push(file.name);
+    } else {
+      if(!file.type.startsWith('text/') && !/\.(txt|md|markdown|csv|json|html?|css|scss|js|ts|tsx|jsx|py|php|rb|twig|xml|ya?ml|toml|sql|log)$/i.test(file.name))throw new Error('Use a text, Markdown or source file for context. Export Word or PDF documents as text first.');
+      if(file.size>64*1024)throw new Error('Context files must be smaller than 64 KB.');
+      const content=await file.text();
+      if(content.includes('\0'))throw new Error('This file contains binary data. Please attach a text version.');
+      if(content.length+assistantFiles.reduce((n,f)=>n+f.content.length,0)>24000)throw new Error('Attached context exceeds 24,000 characters. Use a shorter excerpt.');
+      assistantFiles.push({name:file.name,content});
+    }
+    renderAssistantAttachments();
+  }).catch(error=>{assistantBubble('assistant',String(error.message || error));});
+}
+function addAssistantImage(file:File):void { queueAssistantFile(file); }
 
 function assistantBubble(role: "user" | "assistant", text: string): HTMLElement {
   const bubble = document.createElement("div");
@@ -1644,11 +1765,15 @@ async function sendAssistantMessage(): Promise<void> {
   const resetButton=document.getElementById("assistant-reset") as HTMLButtonElement | null;
   if(resetButton) resetButton.disabled=true;
   if (input) input.value = "";
+  await attachmentReads;
+  const files=assistantFiles;
+  assistantFiles=[];
   const images = assistantImages;
-  assistantImages = [];
+  const imageNames=assistantImageNames;
+  assistantImages = [];assistantImageNames=[];
   const imageList = document.getElementById("assistant-image-list");
   if (imageList) imageList.innerHTML = "";
-  assistantBubble("user", `${prompt}${images.length ? `\n[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""}`);
+  assistantBubble("user", `${prompt}${files.length ? `\n[Files: ${files.map(f=>f.name).join(", ")}]` : ""}${images.length ? `\n[${images.length} image${images.length === 1 ? "" : "s"} attached]` : ""}`);
   const answerBubble = assistantBubble("assistant", "");
   const thinkingSection = document.createElement("details");
   thinkingSection.className = "assistant-thinking";
@@ -1695,6 +1820,7 @@ async function sendAssistantMessage(): Promise<void> {
     : undefined;
   const changes=new Map<string,{before:string|null;after:string;applied:boolean}>();
   const pendingChanges=new Map<string,{before:string|null;after:string;applied:boolean}>();
+  const scaffoldedPaths=new Set<string>();
   let undoButton:HTMLButtonElement|null=null;
   const showUndo=()=>{
     if(undoButton) return;
@@ -1732,6 +1858,23 @@ async function sendAssistantMessage(): Promise<void> {
     };
   };
   try {
+    showActivity('Loading project context…');
+    let references;
+    try {references=await saveProjectContext(files,images.map((content,i)=>({name:imageNames[i] || `Image ${i+1}`,content})));}
+    catch(error){assistantFiles=files;assistantImages=images;assistantImageNames=imageNames;renderAssistantAttachments();throw error;}
+    const selectedReferences=selectProjectContext(references,[assistantSession.plan?.goal,assistantSession.brief,...assistantSession.conversation.filter(m=>m.role==="user").slice(-3).map(m=>m.content),prompt].filter(Boolean).join("\n"));
+    const referenceImages=images;
+    if(selectedReferences.length) {
+      const note=document.createElement('details');note.className='assistant-sources';
+      const summary=document.createElement('summary');
+      summary.textContent=`Sources · ${selectedReferences.length} references`;
+      const list=document.createElement('ul');
+      for(const name of new Set(selectedReferences.map(r=>r.name))) {
+        const item=document.createElement('li');item.textContent=name;list.append(item);
+      }
+      note.append(summary,list);answerBubble.append(note);
+    }
+    showActivity('Thinking…');
     const result = await runAgent({
       session: assistantSession,
       authorizeTool: async (tool, args) => {
@@ -1740,8 +1883,9 @@ async function sendAssistantMessage(): Promise<void> {
           if(openFiles.some(file=>file.path===path && file.dirty)) throw new Error(`Save your unsaved edits to ${path} first.`);
           const read=await callMcpTool("file_read",{path});
           if(!read.ok || typeof read.result!=="string") throw new Error(`Could not read ${path} before applying changes.`);
-          const before=read.result.startsWith("File not found:") ? null : read.result;
+          const before=scaffoldedPaths.has(path) || read.result.startsWith("File not found:") ? null : read.result;
           const after=tool.name==="file_write" ? String(args.content??"") : (before||"").replace(String(args.old_string||""),String(args.new_string||""));
+          await publishReferencedImages(after);
           pendingChanges.set(path,{before:changes.has(path) ? changes.get(path)!.before : before,after,applied:false});
           showActivity(`Applying ${path}…`);
           return true;
@@ -1757,6 +1901,7 @@ async function sendAssistantMessage(): Promise<void> {
       },
       model: "mlx-community/gemma-4-e4b-it-4bit",
       task: prompt,
+      projectReferences: groundProjectContext(selectedReferences,references),
       context,
       previewRoute: (() => {
         try {
@@ -1773,10 +1918,10 @@ async function sendAssistantMessage(): Promise<void> {
       capturePreview: (() => {
         try {
           const frame=window.parent.document.getElementById("t4-preview") as HTMLIFrameElement | null;
-          return frame ? (route?:string)=>capturePreview(frame,route) : undefined;
+          return frame ? (route?:string,focus?:string)=>capturePreview(frame,route,focus) : undefined;
         } catch {return undefined;}
       })(),
-      images,
+      images:referenceImages,
       think: true,
       onEvent: (event) => {
         const messages = answerBubble.parentElement;
@@ -1794,7 +1939,7 @@ async function sendAssistantMessage(): Promise<void> {
         }
         if(event.type==="visual_review") {
           const details=document.createElement("details"),label=document.createElement("summary");
-          label.textContent=event.text?.startsWith("Preview check passed") ? "Preview check passed" : "Preview findings";
+          label.textContent=event.text?.startsWith("Visual inspection complete") ? "Visual inspection · behaviour not verified" : "Preview findings";
           const review=document.createElement("div");renderChatMarkdown(review,event.text||"");details.append(label,review);answerBubble.append(details);
         }
         if(event.type==="preview" && event.capture) {
@@ -1807,6 +1952,7 @@ async function sendAssistantMessage(): Promise<void> {
           details.append(label,image);answerBubble.append(details);
         }
         if (event.type === "phase") {
+          if(!assistantSession.projectReferences) answerBubble.querySelector(".assistant-sources")?.remove();
           showActivity(event.text || "Working…");
           answerText.textContent = event.text || "Working…";
         }
@@ -1818,7 +1964,11 @@ async function sendAssistantMessage(): Promise<void> {
           let result: any;
           try { result = JSON.parse(event.text || "null"); } catch { result = null; }
           if (!result?.error && result?.ok !== false) {
-            if (event.tool === "scaffold") void revealNewFiles(pathsFromOutput(result?.output));
+            if (event.tool === "scaffold") {
+              const created=pathsFromOutput(result?.output);
+              created.forEach(path=>scaffoldedPaths.add(path));
+              void revealNewFiles(created);
+            }
             if (["file_write", "file_patch"].includes(event.tool || "") && event.args?.path) {
               const path = String(event.args.path);
               const change=pendingChanges.get(path);if(change) {change.applied=true;changes.set(path,change);pendingChanges.delete(path);showUndo();}
@@ -1830,8 +1980,16 @@ async function sendAssistantMessage(): Promise<void> {
         if (messages && following) messages.scrollTop = messages.scrollHeight;
       },
     });
+    // Include untouched generator files in the same Undo transaction.
+    for(const path of scaffoldedPaths) {
+      if(changes.has(path))continue;
+      const read=await callMcpTool("file_read",{path});
+      if(read.ok && typeof read.result==="string" && !read.result.startsWith("File not found:")) {
+        changes.set(path,{before:null,after:read.result,applied:true});showUndo();
+      }
+    }
     renderChatMarkdown(answerText, result.answer);
-    finalStatus = result.stopped === "error" ? "Failed · no longer running" : result.stopped === "clarification" ? "Waiting for your answer" : result.stopped === "approval_required" ? "Stopped · change not applied" : result.stopped === "step_limit" ? "Stopped · unfinished" : "Done";
+    finalStatus = result.stopped === "error" ? "Could not complete" : result.stopped === "clarification" ? "Waiting for your answer" : result.stopped === "approval_required" ? "Stopped · change not applied" : result.stopped === "step_limit" ? "Stopped · unfinished" : "Done";
     // Reuse the result instead of spending another model call summarising it.
     const outcome = result.answer.replace(/\s+/g, " ").trim();
     const brief = outcome.length > 140 ? `${outcome.slice(0, 137).trimEnd()}…` : outcome;
@@ -1845,7 +2003,7 @@ async function sendAssistantMessage(): Promise<void> {
   } catch (error) {
     answerText.textContent = error instanceof GatewayError ? gatewayHint(error) : String((error as Error)?.message || error);
     thinkingLabel.textContent = "Thinking interrupted · Request failed";
-    finalStatus = "Failed · no longer running";
+    finalStatus = "Could not complete";
   } finally {
     try { sessionStorage.setItem("tina4-assistant-session", JSON.stringify(assistantSession)); } catch { /* Storage quota does not block editing. */ }
     assistantBusy = false;
@@ -1865,7 +2023,8 @@ async function sendAssistantMessage(): Promise<void> {
 (window as any).__assistantReset = () => {
   if(assistantBusy) return;
   assistantSession=createAgentSession();
-  assistantImages=[];
+  assistantImages=[];assistantImageNames=[];
+  assistantFiles=[];
   try { sessionStorage.removeItem("tina4-assistant-session"); } catch {}
   document.getElementById("assistant-messages")?.replaceChildren();
   document.getElementById("assistant-image-list")?.replaceChildren();
@@ -2194,6 +2353,8 @@ function showCtxMenu(e: MouseEvent, path: string, isDir: boolean): void {
   if (isDir) {
     menu.innerHTML = `
       <div class="ctx-item" onclick="window.__editorNewFile('${esc(path)}')">📄 New File <span class="ctx-shortcut">Ctrl+N</span></div>
+      <div class="ctx-item" onclick="window.__editorUpload('${esc(path)}')">↑ Upload files…</div>
+      ${imageFolder(path) ? `<div class="ctx-item" onclick="window.__editorImageUrl('${esc(path)}')">▧ Add image from URL…</div>` : ''}
       <div class="ctx-item" onclick="window.__editorNewFolder('${esc(path)}')">📁 New Folder <span class="ctx-shortcut">Ctrl+Shift+N</span></div>
       <div class="ctx-sep"></div>
       <div class="ctx-item" onclick="window.__editorRename('${esc(path)}',true)">✏️ Rename</div>
@@ -2238,16 +2399,45 @@ function hideCtxMenu(): void {
 
 async function newFile(dirPath: string): Promise<void> {
   hideCtxMenu();
-  const name = prompt("New file name:");
-  if (!name) return;
-  const filePath = dirPath === "." ? name : `${dirPath}/${name}`;
+  const entered = prompt("New file name (extension inferred from this folder):");
+  if (!entered) return;
   try {
+    const name=inferFileName(entered,dirPath,(fileTreeCache.get(dirPath)||[]).filter(e=>!e.is_dir).map(e=>e.name),(fileTreeCache.get(".")||[]).map(e=>e.name));
+    const filePath = dirPath === "." ? name : `${dirPath}/${name}`;
+    if((fileTreeCache.get(dirPath)||[]).some(e=>e.name===name))throw new Error("A file with this name already exists");
     await api("/file/save", "POST", { path: filePath, content: "" });
     await loadFileTree(dirPath);
     openFile(filePath);
   } catch (e: any) {
     alert("Failed: " + e.message);
   }
+}
+
+async function uploadFiles(folder:string):Promise<void> {
+ hideCtxMenu();
+ const picker=document.createElement('input');picker.type='file';picker.multiple=true;
+ picker.onchange=async()=>{
+  const results:string[]=[];
+  for(const file of Array.from(picker.files||[])) {
+   try {
+    if(file.size>10*1024*1024)throw new Error('File exceeds 10 MiB');
+    let bytes=new Uint8Array(await file.arrayBuffer());
+    let text:string|null=null;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{}
+    if(text!==null){const prepared=await prepareImportedSource(`${folder}/${file.name}`,text,message=>updateStatusBar(message));bytes=new TextEncoder().encode(prepared);}
+
+    let binary='';for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+    updateStatusBar(`Checking and importing ${file.name}…`);
+    const result=await api<any>('/file/import','POST',{folder,name:file.name,content:btoa(binary)});
+    results.push(`${file.name}: imported · ${result.security?.reason || result.security?.status || 'security check unavailable'}`);
+   }catch(error){results.push(`${file.name}: ${String(error)}`);}
+  }
+  await loadFileTree(folder);updateStatusBar('Import finished');alert(results.join('\n'));
+ };picker.click();
+}
+async function addImageUrl(folder:string):Promise<void> {
+ hideCtxMenu();const url=prompt('Image URL (PNG, JPEG, GIF or WebP):');if(!url)return;
+ try {updateStatusBar('Downloading image…');const result=await api<any>('/file/image-url','POST',{folder,url});await loadFileTree(folder);updateStatusBar(`Added ${result.path}`);}
+ catch(error){updateStatusBar(String(error),true);alert(String(error));}
 }
 
 async function newFolder(dirPath: string): Promise<void> {
@@ -2732,6 +2922,11 @@ function closeAllFiles(): void {
 (window as any).__editorToggleMenu = toggleMenu;
 (window as any).__editorCtxMenu = showCtxMenu;
 (window as any).__editorNewFile = newFile;
+(window as any).__editorUpload = uploadFiles;
+(window as any).__editorImageUrl = addImageUrl;
+(window as any).__editorImageHover = showImageHover;
+(window as any).__editorImageHoverHide = hideImageHover;
+(window as any).__editorImageDrag = (event:DragEvent,path:string)=>{event.dataTransfer?.setData("application/x-tina4-image",path);if(event.dataTransfer)event.dataTransfer.effectAllowed="copy";};
 (window as any).__editorNewFolder = newFolder;
 (window as any).__editorRename = renameItem;
 (window as any).__editorDelete = deleteItem;

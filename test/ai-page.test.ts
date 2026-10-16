@@ -1,3 +1,4 @@
+import {scopePageStyles} from '../src/ai-page';
 import { describe, expect, it } from "vitest";
 import { completeStylesheet, preparePageEdit, validatePageScript, javascriptTokens } from "../src/ai-page";
 
@@ -74,3 +75,15 @@ it('detects actual JavaScript changes rather than comments',()=>{
  expect(javascriptTokens('const value = 1; // old')).toBe(javascriptTokens('/* new */ const value=1;'));
  expect(javascriptTokens('const value = 1;')).not.toBe(javascriptTokens('const value = 2;'));
 });
+
+it('scopes generated styles to the requested page without changing shared rules',()=>{
+ const result=scopePageStyles('body {color:black} .card,h1 {padding:1rem} @media(max-width:600px){.card {padding:0}}','example');
+ expect(result).toContain('.example {color:black}');expect(result).toContain('.example .card,.example h1');
+ expect(()=>scopePageStyles('@import "remote.css"; .x{color:red}','example')).toThrow();
+});
+
+ it('rejects invalid CSS math from embedded and inline styles before saving the page',()=>{
+  expect(()=>preparePageEdit(scaffold,'<h1 style="font-size:clamp(1rem, 2vw)">Hello</h1>','example')).toThrow('three arguments');
+  expect(()=>scopePageStyles('.x{font-size:clamp(1rem,calc(2vw + var(--gap, 1px)),3rem)}','example')).not.toThrow();
+  expect(()=>scopePageStyles('.x{font-size:clamp(1rem,2vw,3rem,4rem)}','example')).toThrow('three arguments');
+ });
