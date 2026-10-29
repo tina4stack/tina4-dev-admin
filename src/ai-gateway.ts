@@ -5,7 +5,7 @@ import { runtimeClock } from "./ai-clock";
 // dev-admin talks to ONE thing for AI: the tina4 rust client gateway
 // (`tina4 ai serve`, 127.0.0.1:11435). There is no framework-side proxy any
 // more — the gateway gates on the local `tina4 login` credentials, picks a
-// backend (the Tina4 ai-server on :11437, else Ollama on :11434), and streams
+// backend (Ollama on :11434) and streams
 // the model's reply straight back. Streaming, vision (`images[]`) and thinking
 // (`think`) all ride the native /api/chat body verbatim.
 //
@@ -61,7 +61,7 @@ export function gatewayHint(err: unknown): string {
       return "The local AI connection failed or was interrupted. Check `tina4 ai serve` and retry.";
     }
     if (err.status === 502) {
-      return "No local model is running — start the Tina4 ai-server (:11437) or Ollama (:11434).";
+      return "No local model is running — start Ollama (:11434).";
     }
   }
   return "AI request failed. Check `tina4 ai serve` is running.";
